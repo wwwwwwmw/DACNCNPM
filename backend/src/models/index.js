@@ -7,6 +7,11 @@ const defineRoom = require('../modules/rooms/room.model');
 const defineEvent = require('../modules/events/event.model');
 const defineParticipant = require('../modules/participants/participant.model');
 const defineNotification = require('../modules/notifications/notification.model');
+const defineTask = require('../modules/tasks/task.model');
+const defineTaskAssignment = require('../modules/tasks/task_assignment.model');
+const defineProject = require('../modules/projects/project.model');
+const defineLabel = require('../modules/labels/label.model');
+const defineTaskLabel = require('../modules/tasks/task_label.model');
 
 // Initialize models
 const Department = defineDepartment(sequelize, DataTypes);
@@ -15,6 +20,11 @@ const Room = defineRoom(sequelize, DataTypes);
 const Event = defineEvent(sequelize, DataTypes);
 const Participant = defineParticipant(sequelize, DataTypes);
 const Notification = defineNotification(sequelize, DataTypes);
+const Project = defineProject(sequelize, DataTypes);
+const Task = defineTask(sequelize, DataTypes);
+const TaskAssignment = defineTaskAssignment(sequelize, DataTypes);
+const Label = defineLabel(sequelize, DataTypes);
+const TaskLabel = defineTaskLabel(sequelize, DataTypes);
 
 // Associations
 Department.hasMany(User, { foreignKey: 'departmentId' });
@@ -34,6 +44,22 @@ Participant.belongsTo(User, { foreignKey: 'userId' });
 User.hasMany(Notification, { foreignKey: 'userId' });
 Notification.belongsTo(User, { foreignKey: 'userId' });
 
+// Project & Task relations
+Project.hasMany(Task, { foreignKey: 'projectId' });
+Task.belongsTo(Project, { foreignKey: 'projectId' });
+User.hasMany(Task, { foreignKey: 'createdById', as: 'createdTasks' });
+Task.belongsTo(User, { foreignKey: 'createdById', as: 'createdBy' });
+
+// Task Label (many-to-many)
+Task.belongsToMany(Label, { through: TaskLabel, foreignKey: 'taskId' });
+Label.belongsToMany(Task, { through: TaskLabel, foreignKey: 'labelId' });
+
+// Task Assignments
+Task.hasMany(TaskAssignment, { foreignKey: 'taskId', as: 'assignments' });
+TaskAssignment.belongsTo(Task, { foreignKey: 'taskId' });
+User.hasMany(TaskAssignment, { foreignKey: 'userId', as: 'taskAssignments' });
+TaskAssignment.belongsTo(User, { foreignKey: 'userId' });
+
 module.exports = {
   sequelize,
   Department,
@@ -42,4 +68,9 @@ module.exports = {
   Event,
   Participant,
   Notification,
+  Project,
+  Task,
+  Label,
+  TaskLabel,
+  TaskAssignment,
 };

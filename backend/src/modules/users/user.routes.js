@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const auth = require('../../middleware/auth.middleware');
 const { requireRole, selfOrAdmin } = require('../../middleware/role.middleware');
-const { listUsers, getUser, updateUser } = require('./user.controller');
+const { listUsers, getUser, updateUser, createUser, deleteUser } = require('./user.controller');
 
 /**
  * @swagger
@@ -22,8 +22,12 @@ router.use(auth);
  *     responses:
  *       200: { description: OK }
  */
-router.get('/', requireRole('admin'), listUsers);
-
+router.get('/', requireRole('admin'), async (req, res, next) => {
+  // ?limit=&offset=
+  req.query.limit = Math.min(Number(req.query.limit)||50, 200);
+  req.query.offset = Number(req.query.offset)||0;
+  next();
+}, listUsers);
 /**
  * @swagger
  * /api/users/{id}:
@@ -62,5 +66,8 @@ router.get('/:id', selfOrAdmin('id'), getUser);
  *       200: { description: OK }
  */
 router.put('/:id', selfOrAdmin('id'), updateUser);
+// Admin only create/delete
+router.post('/', requireRole('admin'), createUser);
+router.delete('/:id', requireRole('admin'), deleteUser);
 
 module.exports = router;

@@ -6,25 +6,12 @@ const app = require('./app');
 const { initSocket } = require('./utils/socket');
 const { sequelize } = require('./models');
 const runSeed = require('./seed/seed');
+const { startReminderJob } = require('./jobs/reminder.job');
 
-const os = require('os');
 const PORT = process.env.PORT || 5000;
 const HTTPS_PORT = process.env.HTTPS_PORT || 0; // set to number >0 to enable
 // Prefer explicit HOST from env; fallback to all interfaces (0.0.0.0)
 let HOST = process.env.HOST || '0.0.0.0';
-
-// Helper to detect a LAN IPv4 for logging if HOST is 0.0.0.0
-function getLanIp() {
-  const nets = os.networkInterfaces();
-  for (const name of Object.keys(nets)) {
-    for (const net of nets[name]) {
-      if (net.family === 'IPv4' && !net.internal) {
-        return net.address;
-      }
-    }
-  }
-  return 'localhost';
-}
 
 async function start() {
   try {
@@ -40,20 +27,12 @@ async function start() {
   initSocket(httpServer);
 
   httpServer.listen(PORT, HOST, () => {
-    const lanIp = HOST === '0.0.0.0' ? getLanIp() : HOST;
-    console.log(`🚀 Server running:`);
-    console.log(`   • Local:   http://localhost:${PORT}`);
-    console.log(`   • Network: http://${lanIp}:${PORT}`);
-    console.log(`📘 Swagger UI:`);
-    console.log(`   • Local:   http://localhost:${PORT}/api-docs`);
-    console.log(`   • Network: http://${lanIp}:${PORT}/api-docs`);
-    console.log(`🛠 Admin Panel:`);
-    console.log(`   • Local:   http://localhost:${PORT}/admin/index.html`);
-    console.log(`   • Network: http://${lanIp}:${PORT}/admin/index.html`);
-    if (HTTPS_PORT) {
-      console.log(`🔒 HTTPS (pending cert load) expected at https://localhost:${HTTPS_PORT} and https://${lanIp}:${HTTPS_PORT}`);
-    }
+    console.log(`🚀 Server running at http://localhost:${PORT}`);
+    console.log(`📘 Swagger UI:          http://localhost:${PORT}/api-docs`);
+    console.log(`🛠 Admin Panel:         http://localhost:${PORT}/admin/index.html`);
   });
+  // start reminder cron job
+  try { startReminderJob(); } catch (e) { console.warn('Reminder job failed to start:', e.message); }
 
   // Optional HTTPS server if cert/key provided
   if (HTTPS_PORT) {
@@ -67,10 +46,7 @@ async function start() {
         };
         const httpsServer = https.createServer(credentials, app);
         httpsServer.listen(HTTPS_PORT, HOST, () => {
-          const lanIp = HOST === '0.0.0.0' ? getLanIp() : HOST;
-          console.log(`🔐 HTTPS server running:`);
-          console.log(`   • Local:   https://localhost:${HTTPS_PORT}`);
-          console.log(`   • Network: https://${lanIp}:${HTTPS_PORT}`);
+          console.log(`🔐 HTTPS server running at https://localhost:${HTTPS_PORT}`);
         });
       } catch (e) {
         console.error('Failed to start HTTPS server:', e.message);

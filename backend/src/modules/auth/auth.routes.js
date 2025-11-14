@@ -1,6 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const { register, login, forgotPassword, resetPassword } = require('./auth.controller');
+const auth = require('../../middleware/auth.middleware');
+const { User } = require('../../models');
 
 /**
  * @swagger
@@ -73,5 +75,27 @@ router.post('/forgot-password', forgotPassword);
 
 // Optional helper for actually resetting with the emailed token
 router.post('/reset-password', resetPassword);
+
+/**
+ * @swagger
+ * /api/auth/me:
+ *   get:
+ *     tags: [Auth]
+ *     summary: Thông tin người dùng hiện tại (Bearer token)
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200: { description: OK }
+ *       401: { description: Unauthorized }
+ */
+router.get('/me', auth, async (req, res) => {
+	try {
+		const user = await User.findByPk(req.user.id);
+		if (!user) return res.status(404).json({ message: 'Not found' });
+		const plain = user.toJSON();
+		delete plain.password;
+		return res.json(plain);
+	} catch (e) { return res.status(500).json({ message: e.message }); }
+});
 
 module.exports = router;

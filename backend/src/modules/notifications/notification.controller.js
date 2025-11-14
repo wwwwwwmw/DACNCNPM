@@ -3,7 +3,13 @@ const { notifyUsers } = require('./notification.service');
 
 async function listMyNotifications(req, res) {
   try {
-    const list = await Notification.findAll({ where: { userId: req.user.id }, order: [['created_at','DESC']] });
+    const { limit = 100, offset = 0 } = req.query;
+    const list = await Notification.findAll({
+      where: { userId: req.user.id },
+      order: [['created_at','DESC']],
+      limit: Math.min(Number(limit) || 100, 500),
+      offset: Number(offset) || 0,
+    });
     return res.json(list);
   } catch (e) { return res.status(500).json({ message: e.message }); }
 }

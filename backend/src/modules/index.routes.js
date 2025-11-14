@@ -9,5 +9,8 @@ router.use('/events', require('./events/event.routes'));
 router.use('/participants', require('./participants/participant.routes'));
 router.use('/notifications', require('./notifications/notification.routes'));
 router.use('/reports', require('./reports/reports.routes'));
+router.use('/tasks', require('./tasks/task.routes'));
+router.use('/projects', require('./projects/project.routes'));
+router.use('/labels', require('./labels/label.routes'));
 
 module.exports = router;

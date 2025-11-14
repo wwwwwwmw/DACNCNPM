@@ -8,8 +8,14 @@ const swaggerSpecs = require('./config/swagger.config');
 const path = require('path');
 
 const app = express();
+// Running behind reverse proxies (e.g., ngrok)
+app.set('trust proxy', true);
 
-app.use(cors());
+app.use(cors({
+  origin: '*', // TODO: replace with specific domains in production
+  methods: ['GET','POST','PUT','DELETE','OPTIONS'],
+  allowedHeaders: ['Content-Type','Authorization']
+}));
 // Relax some Helmet policies to ensure Swagger UI and static assets work over LAN
 app.use(helmet({
   crossOriginResourcePolicy: { policy: 'cross-origin' },
@@ -32,6 +38,10 @@ app.use('/api/events', require('./modules/events/event.routes'));
 app.use('/api/participants', require('./modules/participants/participant.routes'));
 app.use('/api/notifications', require('./modules/notifications/notification.routes'));
 app.use('/api/reports', require('./modules/reports/reports.routes'));
+// Newly added modules
+app.use('/api/tasks', require('./modules/tasks/task.routes'));
+app.use('/api/projects', require('./modules/projects/project.routes'));
+app.use('/api/labels', require('./modules/labels/label.routes'));
 
 // Swagger UI
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpecs, { explorer: true }));

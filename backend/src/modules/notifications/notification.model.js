@@ -5,6 +5,8 @@ module.exports = (sequelize, DataTypes) => {
     title: { type: DataTypes.STRING, allowNull: false },
     message: { type: DataTypes.TEXT, allowNull: false },
     is_read: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
+    ref_type: { type: DataTypes.STRING, allowNull: true },
+    ref_id: { type: DataTypes.UUID, allowNull: true },
   }, {
     tableName: 'notifications',
     timestamps: true,

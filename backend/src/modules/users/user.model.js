@@ -10,6 +10,9 @@ module.exports = (sequelize, DataTypes) => {
     password: { type: DataTypes.STRING, allowNull: false },
     role: { type: DataTypes.ENUM('admin','manager','employee'), allowNull: false, defaultValue: 'employee' },
     departmentId: { type: DataTypes.UUID, allowNull: true },
+  contact: { type: DataTypes.STRING, allowNull: true },
+  employee_pin: { type: DataTypes.STRING, allowNull: true },
+  avatar_url: { type: DataTypes.TEXT, allowNull: true },
   }, {
     tableName: 'users',
     timestamps: true,

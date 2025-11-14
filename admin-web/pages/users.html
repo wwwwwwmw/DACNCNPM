@@ -8,19 +8,31 @@
 </head>
 <body>
   <div class="container py-4">
-    <h1 class="mb-3">Người dùng</h1>
+    <div class="d-flex justify-content-between align-items-center mb-3">
+      <h1 class="mb-0">Người dùng</h1>
+      <button class="btn btn-outline-secondary" onclick="logout()">Đăng xuất</button>
+    </div>
+    <div class="d-flex gap-2 mb-2">
+      <input type="number" id="limit" class="form-control w-auto" value="25" />
+      <input type="number" id="offset" class="form-control w-auto" value="0" />
+      <button id="btnLoad" class="btn btn-primary">Tải</button>
+    </div>
     <table class="table" id="tbl"></table>
   </div>
   <script src="https://cdn.jsdelivr.net/npm/axios@1.7.7/dist/axios.min.js"></script>
   <script src="../assets/js/main.js"></script>
   <script>
-    document.addEventListener('DOMContentLoaded', async () => {
-      const res = await api.get('/api/users');
+    async function load() {
+      const limit = document.getElementById('limit').value;
+      const offset = document.getElementById('offset').value;
+      const res = await api.get(`/api/users?limit=${limit}&offset=${offset}`);
       const list = res.data || [];
       const tbl = document.getElementById('tbl');
-      tbl.innerHTML = '<tr><th>ID</th><th>Name</th><th>Email</th><th>Role</th></tr>' +
-        list.map(u => `<tr><td>${u.id}</td><td>${u.name}</td><td>${u.email}</td><td>${u.role}</td></tr>`).join('');
-    });
+      tbl.innerHTML = '<tr><th>#</th><th>Name</th><th>Email</th><th>Role</th><th>Department</th></tr>' +
+        list.map((u,i) => `<tr><td>${+offset + i + 1}</td><td>${u.name}</td><td>${u.email}</td><td>${u.role}</td><td>${u.department?.name||''}</td></tr>`).join('');
+    }
+    document.getElementById('btnLoad').onclick = load;
+    document.addEventListener('DOMContentLoaded', () => ensureLogin().then(load));
   </script>
 </body>
 </html>

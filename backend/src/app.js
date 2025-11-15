@@ -25,9 +25,7 @@ app.use(helmet({
 app.use(express.json());
 app.use(morgan('dev'));
 
-// Static admin panel (served from DACNPM/admin-web folder)
-const adminWebPath = path.join(__dirname, '..', '..', 'admin-web');
-app.use('/admin', express.static(adminWebPath));
+// Note: legacy static admin panel removed
 
 // Routes
 app.use('/api/auth', require('./modules/auth/auth.routes'));
@@ -38,6 +36,7 @@ app.use('/api/events', require('./modules/events/event.routes'));
 app.use('/api/participants', require('./modules/participants/participant.routes'));
 app.use('/api/notifications', require('./modules/notifications/notification.routes'));
 app.use('/api/reports', require('./modules/reports/reports.routes'));
+app.use('/api/backup', require('./modules/backup/backup.routes'));
 // Newly added modules
 app.use('/api/tasks', require('./modules/tasks/task.routes'));
 app.use('/api/projects', require('./modules/projects/project.routes'));

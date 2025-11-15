@@ -2,6 +2,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 // ignore: avoid_web_libraries_in_flutter
 import 'dart:html' as html;
+import 'package:url_launcher/url_launcher_string.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/user.dart';
 import '../models/event.dart';
@@ -496,6 +497,44 @@ class ApiService extends ChangeNotifier {
       // Non-web: hiện tại chỉ thực hiện gọi để server tạo file, và thông báo.
       // Có thể mở rộng: lưu vào thư mục ứng dụng bằng path_provider.
       await _dio.get(endpoint, options: Options(responseType: ResponseType.bytes));
+    }
+  }
+
+  // ===== Reports export (CSV) =====
+  Future<void> exportEventsCSV({DateTime? from, DateTime? to}) async {
+    // Build URL with optional from/to and token (for url_launcher without headers)
+    final params = <String, String>{};
+    if (from != null) params['from'] = from.toIso8601String();
+    if (to != null) params['to'] = to.toIso8601String();
+    if (_token != null) params['token'] = _token!;
+    final qs = params.entries.map((e) => '${Uri.encodeQueryComponent(e.key)}=${Uri.encodeQueryComponent(e.value)}').join('&');
+    final url = '${_dio.options.baseUrl}/api/reports/export/events${qs.isNotEmpty ? '?$qs' : ''}';
+
+    // For web/mobile, use url_launcher so browser downloads respecting Content-Disposition
+    final ok = await launchUrlString(url, mode: LaunchMode.externalApplication);
+    if (!ok) {
+      // Fallback: try direct GET to trigger download behavior (web may still need blob)
+      if (kIsWeb) {
+        final res = await _dio.get<List<int>>('/api/reports/export/events',
+            queryParameters: params..remove('token'),
+            options: Options(responseType: ResponseType.bytes));
+        final bytes = res.data;
+        if (bytes == null) throw Exception('No CSV data');
+        String filename = 'events.csv';
+        final cd = res.headers.map['content-disposition']?.join(';') ?? '';
+        final match = RegExp(r'filename\*=UTF-8\''"?([^";]+)"?|filename="?([^";]+)"?').firstMatch(cd);
+        if (match != null) filename = match.group(1) ?? match.group(2) ?? filename;
+        final blob = html.Blob([bytes], 'text/csv');
+        final blobUrl = html.Url.createObjectUrlFromBlob(blob);
+        final anchor = html.AnchorElement(href: blobUrl)..download = filename;
+        html.document.body?.append(anchor);
+        anchor.click();
+        anchor.remove();
+        html.Url.revokeObjectUrl(blobUrl);
+      } else {
+        // On mobile/desktop without a browser handler, simply issue the GET to ensure server reachable
+        await _dio.get('/api/reports/export/events', queryParameters: params..remove('token'));
+      }
     }
   }
 }

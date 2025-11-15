@@ -113,6 +113,16 @@ class _EventReportPageState extends State<EventReportPage> {
                           setState(() => _year = v);
                           await _load();
                         },
+                      ),
+                      const Spacer(),
+                      ElevatedButton.icon(
+                        onPressed: () async {
+                          final from = DateTime(_year, 1, 1);
+                          final to = DateTime(_year, 12, 31, 23, 59, 59);
+                          await context.read<ApiService>().exportEventsCSV(from: from, to: to);
+                        },
+                        icon: const Icon(Icons.download),
+                        label: const Text('Xuất file CSV'),
                       )
                     ],
                   ),

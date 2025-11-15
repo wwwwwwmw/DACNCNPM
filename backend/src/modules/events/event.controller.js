@@ -30,6 +30,20 @@ async function listEvents(req, res) {
       if (mine && req.user) include[1].where.id = req.user.id;
     }
 
+    // Visibility rules:
+    // - Admin: all
+    // - Manager: own department OR global
+    // - Employee (authenticated non-admin/manager): own department OR global
+    // - Unauthenticated: global approved only
+    if (req.user) {
+      if (req.user.role === 'manager' || req.user.role === 'employee') {
+        const deptCond = req.user.departmentId ? { departmentId: req.user.departmentId } : { departmentId: null };
+        where[Op.or] = [ deptCond, { is_global: true } ];
+      }
+    } else {
+      where.is_global = true;
+      where.status = 'approved';
+    }
     const events = await Event.findAll({
       where,
       include,
@@ -57,15 +71,54 @@ async function getEvent(req, res) {
 
 async function createEvent(req, res) {
   try {
-    const { title, description, start_time, end_time, roomId, participantIds = [], repeat } = req.body;
+    const { title, description, start_time, end_time, roomId, participantIds = [], repeat, departmentId, isGlobal, status: bodyStatus } = req.body;
     if (!title || !start_time || !end_time) return res.status(400).json({ message: 'Missing required fields' });
-    const event = await Event.create({ title, description, start_time, end_time, roomId: roomId || null, createdById: req.user.id, repeat: repeat || null });
+    // Authorization & Department scope checks
+    if (req.user.role === 'manager' && departmentId && String(departmentId) !== String(req.user.departmentId)) {
+      return res.status(403).json({ message: 'Cannot create event for another department' });
+    }
+    if (req.user.role === 'employee' && departmentId && String(departmentId) !== String(req.user.departmentId)) {
+      return res.status(403).json({ message: 'Cannot create event for another department' });
+    }
+
+    // Status rules
+    let status = 'pending';
+    if (req.user.role === 'admin' || req.user.role === 'manager') {
+      const allowed = ['pending','approved','rejected','completed'];
+      if (bodyStatus && allowed.includes(bodyStatus)) status = bodyStatus;
+    } else {
+      // employee must be pending regardless of body
+      status = 'pending';
+    }
+    const event = await Event.create({
+      title,
+      description,
+      start_time,
+      end_time,
+      roomId: roomId || null,
+      createdById: req.user.id,
+      repeat: repeat || null,
+      departmentId: departmentId || (isGlobal ? null : req.user.departmentId) || null,
+      is_global: !!isGlobal,
+      status,
+    });
     const parts = Array.isArray(participantIds) ? participantIds : [];
     if (parts.length) {
       await Participant.bulkCreate(parts.map(uid => ({ eventId: event.id, userId: uid })));
       await notifyUsers(parts, 'Lịch mới', `Bạn được mời tham dự: ${title}`, { ref_type: 'event', ref_id: event.id });
     }
     await notifyUsers(req.user.id, 'Tạo lịch thành công', `Đã tạo: ${title}`, { ref_type: 'event', ref_id: event.id });
+
+    // Notify department managers when pending for approval
+    if (status === 'pending') {
+      try {
+        const mgrs = await User.findAll({ where: { role: 'manager', departmentId: event.departmentId }, attributes: ['id'] });
+        const ids = mgrs.map(m => m.id);
+        if (ids.length) {
+          await notifyUsers(ids, 'Lịch chờ duyệt', `Có lịch mới chờ duyệt: ${event.title}`, { ref_type: 'event', ref_id: event.id });
+        }
+      } catch (_) {}
+    }
     const created = await Event.findByPk(event.id, { include: [Room, { model: User, as: 'createdBy', attributes: ['id','name','email'] }, Participant] });
     return res.status(201).json(created);
   } catch (e) { return res.status(500).json({ message: e.message }); }
@@ -78,14 +131,7 @@ async function updateEvent(req, res) {
     if (!event) return res.status(404).json({ message: 'Not found' });
     const isOwner = String(event.createdById) === String(req.user.id);
     const isAdmin = req.user.role === 'admin';
-    let isManager = req.user.role === 'manager';
-    if (isManager) {
-      // Manager can approve only events created by users in the same department
-      const creator = await User.findByPk(event.createdById);
-      if (!creator || String(creator.departmentId) !== String(req.user.departmentId)) {
-        isManager = false;
-      }
-    }
+    let isManager = req.user.role === 'manager' && (event.is_global || String(event.departmentId) === String(req.user.departmentId));
     if (!isOwner && !(isAdmin || isManager)) return res.status(403).json({ message: 'Forbidden' });
 
     // Owner can edit core fields only when pending; Managers can change status
@@ -125,7 +171,8 @@ async function deleteEvent(req, res) {
     const event = await Event.findByPk(req.params.id);
     if (!event) return res.status(404).json({ message: 'Not found' });
     const isOwner = String(event.createdById) === String(req.user.id);
-    if (!isOwner && req.user.role !== 'admin') return res.status(403).json({ message: 'Forbidden' });
+    const canManagerDelete = req.user.role === 'manager' && (event.is_global || String(event.departmentId) === String(req.user.departmentId));
+    if (!isOwner && !(req.user.role === 'admin' || canManagerDelete)) return res.status(403).json({ message: 'Forbidden' });
   await event.destroy();
   try { require('../../utils/socket').getIO().emit('dataUpdated', { resource: 'events', action: 'delete', id: event.id }); } catch (_) {}
     const participants = await Participant.findAll({ where: { eventId: req.params.id } });

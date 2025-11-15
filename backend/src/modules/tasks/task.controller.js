@@ -1,6 +1,27 @@
-const { Task, Project, Label, TaskAssignment, User, Participant, Event } = require('../../models');
+const { Task, Project, Label, TaskAssignment, User, Participant, Event, TaskComment } = require('../../models');
 const { getIO } = require('../../utils/socket');
 const { Op } = require('sequelize');
+
+function computeEffectiveWeights(tasks) {
+  // tasks: array of { id, weight }
+  const explicit = tasks.filter(t => typeof t.weight === 'number' && t.weight !== null);
+  const auto = tasks.filter(t => t.weight === null || typeof t.weight === 'undefined');
+  const sumExplicit = explicit.reduce((a,b)=> a + (b.weight||0), 0);
+  let remaining = 100 - sumExplicit;
+  if (remaining < 0) remaining = 0; // quá 100 thì phần còn lại = 0
+  const result = {};
+  explicit.forEach(t => { result[t.id] = t.weight; });
+  if (auto.length) {
+    const base = Math.floor(remaining / auto.length);
+    let rem = remaining % auto.length;
+    auto.forEach(t => {
+      let w = base;
+      if (rem > 0) { w += 1; rem -= 1; }
+      result[t.id] = w;
+    });
+  }
+  return result; // id -> effectiveWeight
+}
 
 async function listTasks(req, res) {
   try {
@@ -14,38 +35,63 @@ async function listTasks(req, res) {
       if (from) where.start_time[Op.gte] = new Date(from);
       if (to) where.start_time[Op.lte] = new Date(to);
     }
-    // Managers default to department scope unless scope=all explicitly
     if (req.user?.role === 'manager' && scope !== 'all') {
       where.departmentId = req.user.departmentId || null;
     }
-    const include = [
-      Project,
-      { model: Label },
-    ];
+    const include = [ Project, { model: Label } ];
     if (req.user?.role === 'employee' && scope !== 'all') {
       include.push({ model: TaskAssignment, as: 'assignments', required: true, where: { userId: req.user.id }, include: [{ model: User, attributes: ['id','name'] }] });
     } else {
       include.push({ model: TaskAssignment, as: 'assignments', include: [{ model: User, attributes: ['id','name'] }] });
     }
-    const tasks = await Task.findAll({
+    const rows = await Task.findAll({
       where,
       include,
       limit: Math.min(Number(limit) || 100, 500),
       offset: Number(offset) || 0,
       order: [['created_at','DESC']]
     });
-    return res.json(tasks);
+    // Tính effective weight theo từng project
+    const byProject = {};
+    rows.forEach(r => {
+      const pid = r.projectId || '__no_project__';
+      if (!byProject[pid]) byProject[pid] = [];
+      byProject[pid].push(r);
+    });
+    const weightMaps = {};
+    Object.entries(byProject).forEach(([pid, arr]) => {
+      weightMaps[pid] = computeEffectiveWeights(arr.map(t => ({ id: t.id, weight: t.weight })));
+    });
+    const json = rows.map(r => {
+      const obj = r.toJSON();
+      const pid = r.projectId || '__no_project__';
+      obj.effectiveWeight = weightMaps[pid][r.id];
+      return obj;
+    });
+    return res.json(json);
   } catch (e) { return res.status(500).json({ message: e.message }); }
 }
 
 async function createTask(req, res) {
   try {
-    const { title, description, start_time, end_time, status, projectId, priority, labelIds = [], assignment_type = 'open', capacity = 1, departmentId } = req.body;
+    const { title, description, start_time, end_time, status, projectId, priority, labelIds = [], assignment_type = 'open', capacity = 1, departmentId, weight } = req.body;
     if (!title) return res.status(400).json({ message: 'Missing title' });
     if (req.user.role === 'manager' && departmentId && String(departmentId) !== String(req.user.departmentId)) {
       return res.status(403).json({ message: 'Cannot create task for another department' });
     }
-    const task = await Task.create({ title, description, start_time, end_time, status: status || 'todo', projectId: projectId || null, createdById: req.user.id, priority: priority || 'normal', assignment_type, capacity, departmentId: departmentId || req.user.departmentId || null });
+    let weightVal = null;
+    if (typeof weight === 'number') {
+      if (weight < 0 || weight > 100) return res.status(400).json({ message: 'Weight out of range' });
+      weightVal = Math.round(weight);
+    }
+    // Validate tổng trọng số explicit không vượt 100
+    if (projectId && weightVal !== null) {
+      const siblings = await Task.findAll({ where: { projectId, id: { [Op.ne]: null } }, attributes: ['id','weight'] });
+      let sum = weightVal;
+      siblings.forEach(s => { if (s.weight !== null && typeof s.weight === 'number') sum += s.weight; });
+      if (sum > 100) return res.status(400).json({ message: 'Tổng trọng số vượt 100%' });
+    }
+    const task = await Task.create({ title, description, start_time, end_time, status: status || 'todo', projectId: projectId || null, createdById: req.user.id, priority: priority || 'normal', assignment_type, capacity, departmentId: departmentId || req.user.departmentId || null, weight: weightVal });
     if (Array.isArray(labelIds) && labelIds.length) {
       await task.setLabels(labelIds);
     }
@@ -59,8 +105,9 @@ async function updateTask(req, res) {
   try {
     const task = await Task.findByPk(req.params.id);
     if (!task) return res.status(404).json({ message: 'Not found' });
-    if (String(task.createdById) !== String(req.user.id) && req.user.role !== 'admin') return res.status(403).json({ message: 'Forbidden' });
-    const { title, description, start_time, end_time, status, projectId, priority, labelIds, assignment_type, capacity } = req.body;
+    const managerCan = req.user.role === 'manager' && String(task.departmentId) === String(req.user.departmentId);
+    if (String(task.createdById) !== String(req.user.id) && !(req.user.role === 'admin' || managerCan)) return res.status(403).json({ message: 'Forbidden' });
+    const { title, description, start_time, end_time, status, projectId, priority, labelIds, assignment_type, capacity, weight } = req.body;
     if (title) task.title = title;
     if (typeof description !== 'undefined') task.description = description;
     if (start_time) task.start_time = start_time;
@@ -70,6 +117,21 @@ async function updateTask(req, res) {
     if (priority) task.priority = priority;
     if (assignment_type) task.assignment_type = assignment_type;
     if (typeof capacity !== 'undefined') task.capacity = capacity;
+    if (typeof weight !== 'undefined') {
+      if (weight === null || weight === '') {
+        task.weight = null;
+      } else if (typeof weight === 'number') {
+        if (weight < 0 || weight > 100) return res.status(400).json({ message: 'Weight out of range' });
+        task.weight = Math.round(weight);
+      }
+    }
+    // Sau khi gán weight mới, kiểm tra tổng trọng số explicit
+    if (task.projectId && task.weight !== null) {
+      const siblings = await Task.findAll({ where: { projectId: task.projectId, id: { [Op.ne]: task.id } }, attributes: ['id','weight'] });
+      let sum = task.weight;
+      siblings.forEach(s => { if (s.weight !== null && typeof s.weight === 'number') sum += s.weight; });
+      if (sum > 100) return res.status(400).json({ message: 'Tổng trọng số vượt 100%' });
+    }
     await task.save();
     if (Array.isArray(labelIds)) await task.setLabels(labelIds);
   const updated = await Task.findByPk(task.id, { include: [Project, { model: Label }, { model: TaskAssignment, as: 'assignments' }] });
@@ -82,7 +144,8 @@ async function deleteTask(req, res) {
   try {
     const task = await Task.findByPk(req.params.id);
     if (!task) return res.status(404).json({ message: 'Not found' });
-    if (String(task.createdById) !== String(req.user.id) && req.user.role !== 'admin') return res.status(403).json({ message: 'Forbidden' });
+    const managerCan = req.user.role === 'manager' && String(task.departmentId) === String(req.user.departmentId);
+    if (String(task.createdById) !== String(req.user.id) && !(req.user.role === 'admin' || managerCan)) return res.status(403).json({ message: 'Forbidden' });
   await task.destroy();
   try { getIO().emit('dataUpdated', { resource: 'tasks', action: 'delete', id: task.id }); } catch (_) {}
     return res.json({ message: 'Deleted' });
@@ -184,6 +247,50 @@ async function rejectTask(req, res) {
   } catch (e) { return res.status(500).json({ message: e.message }); }
 }
 
+// Manager/Admin approves an employee's rejection. If userId provided, target that user; otherwise all rejected.
+async function approveRejection(req, res) {
+  try {
+    const task = await Task.findByPk(req.params.id);
+    if (!task) return res.status(404).json({ message: 'Not found' });
+    const isManager = req.user.role === 'manager' && String(task.departmentId) === String(req.user.departmentId);
+    if (!(req.user.role === 'admin' || isManager)) return res.status(403).json({ message: 'Forbidden' });
+    const { userId } = req.body || {};
+    const where = { taskId: task.id, status: 'rejected' };
+    if (userId) where.userId = userId;
+    const asgs = await TaskAssignment.findAll({ where });
+    if (!asgs.length) return res.status(404).json({ message: 'No rejected assignments' });
+    const affectedUserIds = asgs.map(a => a.userId);
+    for (const a of asgs) await a.destroy();
+    try {
+      await require('../notifications/notification.service').notifyUsers(affectedUserIds, 'Chấp thuận từ chối', `Quản lý đã chấp thuận yêu cầu từ chối cho nhiệm vụ: ${task.title}`, { ref_type: 'task', ref_id: task.id });
+    } catch (_) {}
+    try { getIO().emit('dataUpdated', { resource: 'tasks', action: 'approve-reject', id: task.id }); } catch (_) {}
+    return res.json({ message: 'Approved', count: asgs.length });
+  } catch (e) { return res.status(500).json({ message: e.message }); }
+}
+
+// Manager/Admin denies an employee's rejection: restore assignment and notify employee(s).
+async function denyRejection(req, res) {
+  try {
+    const task = await Task.findByPk(req.params.id);
+    if (!task) return res.status(404).json({ message: 'Not found' });
+    const isManager = req.user.role === 'manager' && String(task.departmentId) === String(req.user.departmentId);
+    if (!(req.user.role === 'admin' || isManager)) return res.status(403).json({ message: 'Forbidden' });
+    const { userId } = req.body || {};
+    const where = { taskId: task.id, status: 'rejected' };
+    if (userId) where.userId = userId;
+    const asgs = await TaskAssignment.findAll({ where });
+    if (!asgs.length) return res.status(404).json({ message: 'No rejected assignments' });
+    const newStatus = task.assignment_type === 'direct' ? 'assigned' : 'accepted';
+    for (const a of asgs) { a.status = newStatus; await a.save(); }
+    try {
+      await require('../notifications/notification.service').notifyUsers(asgs.map(a=>a.userId), 'Từ chối không được duyệt', `Quản lý không chấp thuận yêu cầu từ chối. Vui lòng tiếp tục nhiệm vụ: ${task.title}`, { ref_type: 'task', ref_id: task.id });
+    } catch (_) {}
+    try { getIO().emit('dataUpdated', { resource: 'tasks', action: 'deny-reject', id: task.id }); } catch (_) {}
+    return res.json({ message: 'Denied', count: asgs.length });
+  } catch (e) { return res.status(500).json({ message: e.message }); }
+}
+
 async function acceptTask(req, res) {
   try {
     const task = await Task.findByPk(req.params.id);
@@ -239,4 +346,36 @@ async function updateProgress(req, res) {
   } catch (e) { return res.status(500).json({ message: e.message }); }
 }
 
-module.exports = { listTasks, createTask, updateTask, deleteTask, stats, applyTask, assignTask, acceptTask, updateProgress, rejectTask };
+module.exports = { listTasks, createTask, updateTask, deleteTask, stats, applyTask, assignTask, acceptTask, updateProgress, rejectTask, approveRejection, denyRejection };
+// ===== Comments APIs =====
+async function listComments(req, res) {
+  try {
+    const taskId = req.params.id;
+    const task = await Task.findByPk(taskId);
+    if (!task) return res.status(404).json({ message: 'Task not found' });
+    const list = await TaskComment.findAll({
+      where: { taskId },
+      include: [{ model: User, attributes: ['id','name','email'] }],
+      order: [['created_at','ASC']]
+    });
+    return res.json(list);
+  } catch (e) { return res.status(500).json({ message: e.message }); }
+}
+
+async function createComment(req, res) {
+  try {
+    const taskId = req.params.id;
+    const task = await Task.findByPk(taskId);
+    if (!task) return res.status(404).json({ message: 'Task not found' });
+    const contentRaw = (req.body?.content ?? '').toString().trim();
+    if (!contentRaw) return res.status(400).json({ message: 'Missing content' });
+    const content = contentRaw.slice(0, 5000);
+    const created = await TaskComment.create({ taskId, userId: req.user.id, content });
+    const withUser = await TaskComment.findByPk(created.id, { include: [{ model: User, attributes: ['id','name','email'] }] });
+    try { getIO().emit('dataUpdated', { resource: 'task_comments', action: 'create', id: created.id, taskId }); } catch (_) {}
+    return res.status(201).json(withUser);
+  } catch (e) { return res.status(500).json({ message: e.message }); }
+}
+
+module.exports.listComments = listComments;
+module.exports.createComment = createComment;

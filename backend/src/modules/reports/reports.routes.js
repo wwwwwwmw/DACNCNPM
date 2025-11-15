@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { eventsByMonth, eventsByDepartment, exportEventsCsv } = require('./reports.controller');
 const auth = require('../../middleware/auth.middleware');
+const authOrQuery = require('../../middleware/auth_or_query.middleware');
 const { requireRole } = require('../../middleware/role.middleware');
 
 /**
@@ -47,6 +48,7 @@ router.get('/eventsByDepartment', eventsByDepartment);
  *         name: to
  *         schema: { type: string, format: date-time }
  */
-router.get('/export/events', auth, requireRole('admin','manager'), exportEventsCsv);
+// Allow auth via header or `?token=` for download convenience
+router.get('/export/events', authOrQuery, requireRole('admin','manager'), exportEventsCsv);
 
 module.exports = router;

@@ -18,6 +18,8 @@ class TaskModel {
   final int capacity; // slots
   final String? departmentId;
   final List<TaskAssignmentModel> assignments;
+  final int? weight; // trọng số người dùng nhập (nullable)
+  final int effectiveWeight; // trọng số hiệu dụng sau phân bổ
 
   TaskModel({
     required this.id,
@@ -34,6 +36,8 @@ class TaskModel {
     this.capacity = 1,
     this.departmentId,
     this.assignments = const [],
+    this.weight,
+    this.effectiveWeight = 0,
   });
 
   factory TaskModel.fromJson(Map<String, dynamic> json) {
@@ -56,6 +60,8 @@ class TaskModel {
       assignments: (assignsRaw is List)
           ? assignsRaw.map((e) => TaskAssignmentModel.fromJson(e as Map<String, dynamic>)).toList()
           : [],
+      weight: json['weight'] is int ? json['weight'] : (json['weight'] is num ? (json['weight'] as num).toInt() : null),
+      effectiveWeight: json['effectiveWeight'] is int ? json['effectiveWeight'] : (json['effectiveWeight'] is num ? (json['effectiveWeight'] as num).toInt() : 0),
     );
   }
 }

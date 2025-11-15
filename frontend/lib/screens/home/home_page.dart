@@ -48,7 +48,6 @@ class _HomePageState extends State<HomePage> {
     final role = api.currentUser?.role;
     final isAdmin = role == 'admin';
     final isManager = role == 'manager';
-    final showExtra = isAdmin || isManager;
     final pages = [
       const HomeTasksPage(), // new tasks home
       const SchedulePage(),
@@ -69,7 +68,7 @@ class _HomePageState extends State<HomePage> {
         currentIndex: _index.clamp(0, pages.length - 1),
         onTap: (i) => setState(() => _index = i),
         items: [
-          const BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Home'),
+          const BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Trang chủ'),
           const BottomNavigationBarItem(icon: Icon(Icons.calendar_month), label: 'Lịch'),
           BottomNavigationBarItem(
             icon: Stack(
@@ -82,7 +81,7 @@ class _HomePageState extends State<HomePage> {
                     top: -2,
                     child: Container(
                       padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
-                      decoration: BoxDecoration(color: Colors.redAccent, borderRadius: BorderRadius.circular(10)),
+                      decoration: BoxDecoration(color: Theme.of(context).colorScheme.error, borderRadius: BorderRadius.circular(10)),
                       constraints: const BoxConstraints(minWidth: 16),
                       child: Text('$unread', style: const TextStyle(color: Colors.white, fontSize: 10), textAlign: TextAlign.center),
                     ),
@@ -92,7 +91,8 @@ class _HomePageState extends State<HomePage> {
             label: 'Thông báo',
           ),
           const BottomNavigationBarItem(icon: Icon(Icons.person), label: 'Tài khoản'),
-          if (showExtra) const BottomNavigationBarItem(icon: Icon(Icons.admin_panel_settings), label: 'Quản trị'),
+          if (isAdmin) const BottomNavigationBarItem(icon: Icon(Icons.admin_panel_settings), label: 'Quản trị'),
+          if (!isAdmin && isManager) const BottomNavigationBarItem(icon: Icon(Icons.manage_accounts), label: 'Quản lý'),
         ],
       ),
     );

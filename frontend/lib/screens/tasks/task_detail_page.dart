@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../models/task.dart';
 import '../../models/task_assignment.dart';
+import '../../models/task_comment.dart';
 import '../../services/api_service.dart';
 import 'add_task_page.dart';
 
@@ -15,6 +16,25 @@ class TaskDetailPage extends StatefulWidget {
 
 class _TaskDetailPageState extends State<TaskDetailPage> {
   double? _progressDraft;
+  List<TaskCommentModel> _comments = [];
+  bool _loadingComments = true;
+  final TextEditingController _commentCtrl = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    _loadComments();
+  }
+
+  Future<void> _loadComments() async {
+    try {
+      final api = context.read<ApiService>();
+      final list = await api.fetchTaskComments(widget.task.id);
+      if (mounted) setState(() { _comments = list; _loadingComments = false; });
+    } catch (_) {
+      if (mounted) setState(() { _loadingComments = false; });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -26,8 +46,40 @@ class _TaskDetailPageState extends State<TaskDetailPage> {
   final isFull = acceptedCount >= task.capacity;
     final myAsg = currentUser == null ? null : assignments.where((a) => a.userId == currentUser.id).cast<TaskAssignmentModel?>().firstWhere((_)=>true, orElse: ()=>null);
 
+    final canManage = currentUser != null && (
+      currentUser.role == 'admin' ||
+      (currentUser.role == 'manager' && (task.departmentId == null || task.departmentId == currentUser.departmentId)) ||
+      (task.createdBy?.id == currentUser.id)
+    );
     return Scaffold(
-      appBar: AppBar(title: const Text('Task Detail')),
+      appBar: AppBar(
+        title: const Text('Chi tiết Công việc'),
+        actions: [
+          if (canManage)
+            IconButton(
+              icon: const Icon(Icons.delete_outline),
+              onPressed: () async {
+                final ok = await showDialog<bool>(context: context, builder: (ctx) {
+                  return AlertDialog(
+                    title: const Text('Xóa nhiệm vụ'),
+                    content: const Text('Bạn có chắc muốn xóa nhiệm vụ này?'),
+                    actions: [
+                      TextButton(onPressed: ()=> Navigator.pop(ctx,false), child: const Text('Hủy')),
+                      ElevatedButton(
+                        style: ElevatedButton.styleFrom(backgroundColor: Theme.of(ctx).colorScheme.error),
+                        onPressed: ()=> Navigator.pop(ctx,true), child: const Text('Xóa')
+                      ),
+                    ],
+                  );
+                });
+                if (ok == true) {
+                  await context.read<ApiService>().deleteTask(task.id);
+                  if (mounted) Navigator.pop(context);
+                }
+              },
+            )
+        ],
+      ),
       body: Padding(
         padding: const EdgeInsets.all(16.0),
         child: SingleChildScrollView(
@@ -38,14 +90,14 @@ class _TaskDetailPageState extends State<TaskDetailPage> {
             const SizedBox(height: 16),
             Wrap(spacing:8, runSpacing: 8, children: [
               Chip(label: Text(task.status.replaceAll('_',' '))),
-              Chip(label: Text('Priority: ${task.priority}')),
-              Chip(label: Text('Type: ${task.assignmentType}')),
-              Chip(label: Text('Slots: $acceptedCount / ${task.capacity}')),
-              if (isFull) Chip(label: const Text('Đủ người'), backgroundColor: Colors.green.shade100),
+              Chip(label: Text('Độ ưu tiên: ${task.priority}')),
+              Chip(label: Text('Hình thức: ${task.assignmentType}')),
+              Chip(label: Text('Chỗ: $acceptedCount / ${task.capacity}')),
+              if (isFull) Chip(label: const Text('Đủ người'), backgroundColor: Theme.of(context).colorScheme.secondary.withOpacity(0.2)),
             ]),
             const SizedBox(height: 16),
-            if (task.startTime != null) Text('Start: ${task.startTime}'),
-            if (task.endTime != null) Text('End: ${task.endTime}'),
+            if (task.startTime != null) Text('Bắt đầu: ${task.startTime}'),
+            if (task.endTime != null) Text('Kết thúc: ${task.endTime}'),
             const SizedBox(height: 24),
 
             // Employee actions
@@ -54,31 +106,34 @@ class _TaskDetailPageState extends State<TaskDetailPage> {
                 ElevatedButton.icon(
                   onPressed: (isFull || task.status == 'completed') ? null : () async {
                     await context.read<ApiService>().applyTask(task.id);
-                    if (mounted) Navigator.pop(context); // return to reload list
+                    if (!mounted) return; 
+                    Navigator.pop(context); // return to reload list
                   },
                   icon: const Icon(Icons.how_to_reg),
-                  label: const Text('Apply for this task'),
+                  label: const Text('Nhận nhiệm vụ này'),
                 )
               ],
               if (myAsg != null && myAsg.status == 'assigned') ...[
                 ElevatedButton.icon(
                   onPressed: (isFull || task.status == 'completed') ? null : () async {
                     await context.read<ApiService>().acceptTask(task.id);
-                    if (mounted) Navigator.pop(context);
+                    if (!mounted) return; 
+                    Navigator.pop(context);
                   },
                   icon: const Icon(Icons.check_circle),
-                  label: const Text('Accept assignment'),
+                  label: const Text('Chấp nhận'),
                 )
               ],
               if (myAsg != null && (myAsg.status == 'assigned' || myAsg.status == 'accepted') && myAsg.status != 'completed') ...[
                 const SizedBox(height: 8),
                 ElevatedButton.icon(
-                  style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+                  style: ElevatedButton.styleFrom(backgroundColor: Theme.of(context).colorScheme.error),
                   onPressed: () async {
                     final reason = await _askRejectReason(context);
                     if (reason != null && reason.trim().isNotEmpty) {
                       await context.read<ApiService>().rejectTask(task.id, reason.trim());
-                      if (mounted) Navigator.pop(context);
+                      if (!mounted) return; 
+                      Navigator.pop(context);
                     }
                   },
                   icon: const Icon(Icons.block),
@@ -87,7 +142,7 @@ class _TaskDetailPageState extends State<TaskDetailPage> {
               ],
               if (myAsg != null) ...[
                 const SizedBox(height: 12),
-                Text('Your progress: ${(myAsg.progress)}%'),
+                Text('Tiến độ của bạn: ${(myAsg.progress)}%'),
                 Slider(
                   min: 0,
                   max: 100,
@@ -100,10 +155,11 @@ class _TaskDetailPageState extends State<TaskDetailPage> {
                   onPressed: (task.status == 'completed' || myAsg.status == 'completed') ? null : () async {
                     final value = (_progressDraft ?? myAsg.progress.toDouble()).round();
                     await context.read<ApiService>().updateTaskProgress(task.id, value);
-                    if (mounted) Navigator.pop(context);
+                    if (!mounted) return; 
+                    Navigator.pop(context);
                   },
                   icon: const Icon(Icons.save),
-                  label: const Text('Update progress'),
+                  label: const Text('Cập nhật tiến độ'),
                 )
               ]
             ],
@@ -125,7 +181,8 @@ class _TaskDetailPageState extends State<TaskDetailPage> {
                   final selected = await _pickUser(context);
                   if (selected != null) {
                     await context.read<ApiService>().assignTask(task.id, selected);
-                    if (mounted) Navigator.pop(context);
+                    if (!mounted) return; 
+                    Navigator.pop(context);
                   }
                 },
                 icon: const Icon(Icons.person_add_alt_1),
@@ -137,7 +194,7 @@ class _TaskDetailPageState extends State<TaskDetailPage> {
                   Navigator.push(context, MaterialPageRoute(builder: (_) => AddTaskPage(editing: task)));
                 },
                 icon: const Icon(Icons.edit),
-                label: const Text('Edit Task'),
+                label: const Text('Sửa công việc'),
               ),
             ] else ...[
               const SizedBox(height: 24),
@@ -146,10 +203,65 @@ class _TaskDetailPageState extends State<TaskDetailPage> {
                   Navigator.push(context, MaterialPageRoute(builder: (_) => AddTaskPage(editing: task)));
                 },
                 icon: const Icon(Icons.edit),
-                label: const Text('Edit'),
+                label: const Text('Sửa'),
               )
-            ]
+            ],
+            const SizedBox(height: 24),
+            Text('Bình luận', style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 8),
+            if (_loadingComments) const Padding(padding: EdgeInsets.symmetric(vertical: 12), child: CircularProgressIndicator()),
+            if (!_loadingComments && _comments.isEmpty) const Text('Chưa có bình luận'),
+            if (!_loadingComments && _comments.isNotEmpty)
+              ListView.builder(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                itemCount: _comments.length,
+                itemBuilder: (ctx, i) {
+                  final c = _comments[i];
+                  return ListTile(
+                    leading: const Icon(Icons.chat_bubble_outline),
+                    title: Text(c.user?.name ?? c.userId),
+                    subtitle: Text(c.content),
+                  );
+                },
+              ),
           ]),
+        ),
+      ),
+      bottomNavigationBar: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+          child: Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _commentCtrl,
+                  decoration: const InputDecoration(
+                    hintText: 'Viết bình luận...',
+                    border: OutlineInputBorder(),
+                    isDense: true,
+                    contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              ElevatedButton(
+                onPressed: () async {
+                  final text = _commentCtrl.text.trim();
+                  if (text.isEmpty) return;
+                  try {
+                    final api = context.read<ApiService>();
+                    final cm = await api.addTaskComment(widget.task.id, text);
+                    setState(() { _comments.add(cm); _commentCtrl.clear(); });
+                  } catch (e) {
+                    if (!mounted) return;
+                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Gửi bình luận thất bại')));
+                  }
+                },
+                child: const Text('Gửi'),
+              )
+            ],
+          ),
         ),
       ),
     );

@@ -70,7 +70,7 @@ class _AdminUsersTabState extends State<AdminUsersTab> {
               TextField(controller: passCtrl, decoration: const InputDecoration(labelText: 'Mật khẩu *'), obscureText: true),
               const SizedBox(height: 8),
               DropdownButtonFormField<String>(
-                value: role,
+                  initialValue: role,
                 decoration: const InputDecoration(labelText: 'Vai trò'),
                 items: const [
                   DropdownMenuItem(value: 'employee', child: Text('Nhân viên')),
@@ -80,7 +80,7 @@ class _AdminUsersTabState extends State<AdminUsersTab> {
                 onChanged: (v) => setStateDialog(() => role = v ?? 'employee'),
               ),
               DropdownButtonFormField<DepartmentModel>(
-                value: dep,
+                  initialValue: dep,
                 decoration: const InputDecoration(labelText: 'Phòng ban'),
                 items: api.departments.map((d) => DropdownMenuItem(value: d, child: Text(d.name))).toList(),
                 onChanged: (v) => setStateDialog(() => dep = v),
@@ -97,8 +97,7 @@ class _AdminUsersTabState extends State<AdminUsersTab> {
     if (ok == true && nameCtrl.text.trim().isNotEmpty && emailCtrl.text.trim().isNotEmpty && passCtrl.text.isNotEmpty) {
       try {
         await api.adminCreateUser(name: nameCtrl.text.trim(), email: emailCtrl.text.trim(), password: passCtrl.text, role: role, departmentId: dep?.id);
-        _offset++; // keep pagination consistent
-        setState(() { _users.insert(0, api.listUsers(limit:1,offset:0) as dynamic); }); // placeholder refresh approach
+        if (!mounted) return;
         await _fetch(refresh: true); // ensure list fresh
       } catch (e) {
         if(mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Tạo thất bại: $e')));
@@ -123,7 +122,7 @@ class _AdminUsersTabState extends State<AdminUsersTab> {
               TextField(controller: nameCtrl, decoration: const InputDecoration(labelText: 'Tên *')),
               TextField(controller: passCtrl, decoration: const InputDecoration(labelText: 'Mật khẩu (đổi nếu nhập)'), obscureText: true),
               DropdownButtonFormField<String>(
-                value: role,
+                  initialValue: role,
                 decoration: const InputDecoration(labelText: 'Vai trò'),
                 items: const [
                   DropdownMenuItem(value: 'employee', child: Text('Nhân viên')),
@@ -133,7 +132,7 @@ class _AdminUsersTabState extends State<AdminUsersTab> {
                 onChanged: (v) => setStateDialog(() => role = v ?? role),
               ),
               DropdownButtonFormField<DepartmentModel>(
-                value: dep,
+                  initialValue: dep,
                 decoration: const InputDecoration(labelText: 'Phòng ban'),
                 items: api.departments.map((d) => DropdownMenuItem(value: d, child: Text(d.name))).toList(),
                 onChanged: (v) => setStateDialog(() => dep = v),
@@ -150,6 +149,7 @@ class _AdminUsersTabState extends State<AdminUsersTab> {
     if (ok == true && nameCtrl.text.trim().isNotEmpty) {
       try {
         await api.adminUpdateUser(user.id, name: nameCtrl.text.trim(), role: role, departmentId: dep?.id.isEmpty == true ? null : dep?.id, password: passCtrl.text.isEmpty ? null : passCtrl.text);
+        if (!mounted) return;
         await _fetch(refresh: true);
       } catch (e) {
         if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Cập nhật thất bại: $e')));

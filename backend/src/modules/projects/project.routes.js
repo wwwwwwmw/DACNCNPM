@@ -5,8 +5,9 @@ const { listProjects, createProject, updateProject, deleteProject } = require('.
 
 router.use(auth);
 router.get('/', listProjects);
-router.post('/', createProject);
-router.put('/:id', updateProject);
-router.delete('/:id', deleteProject);
+const { requireRole } = require('../../middleware/role.middleware');
+router.post('/', requireRole('admin','manager'), createProject);
+router.put('/:id', requireRole('admin','manager'), updateProject);
+router.delete('/:id', requireRole('admin','manager'), deleteProject);
 
 module.exports = router;

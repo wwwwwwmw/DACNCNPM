@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../services/api_service.dart';
+import '../../models/event.dart';
 
 class ManagerHomePage extends StatefulWidget {
   const ManagerHomePage({super.key});
@@ -60,29 +61,76 @@ class _ManagerHomePageState extends State<ManagerHomePage> with SingleTickerProv
   }
 }
 
-class _DeptEmployeesTab extends StatelessWidget {
+class _DeptEmployeesTab extends StatefulWidget {
   const _DeptEmployeesTab();
+  @override
+  State<_DeptEmployeesTab> createState() => _DeptEmployeesTabState();
+}
+
+class _DeptEmployeesTabState extends State<_DeptEmployeesTab> {
+  int _reloadToken = 0;
+
+  Future<bool?> _openAddEmployee(BuildContext context) async {
+    final nameCtrl = TextEditingController();
+    final emailCtrl = TextEditingController();
+    final passCtrl = TextEditingController();
+    final api = context.read<ApiService>();
+    return showDialog<bool>(context: context, builder: (ctx) {
+      return AlertDialog(
+        title: const Text('Thêm nhân viên'),
+        content: Column(mainAxisSize: MainAxisSize.min, children: [
+          TextField(controller: nameCtrl, decoration: const InputDecoration(labelText: 'Tên')),
+          TextField(controller: emailCtrl, decoration: const InputDecoration(labelText: 'Email')),
+          TextField(controller: passCtrl, decoration: const InputDecoration(labelText: 'Mật khẩu'), obscureText: true),
+        ]),
+        actions: [
+          TextButton(onPressed: ()=> Navigator.pop(ctx,false), child: const Text('Hủy')),
+          ElevatedButton(onPressed: () async {
+            if (nameCtrl.text.trim().isEmpty || emailCtrl.text.trim().isEmpty || passCtrl.text.trim().isEmpty) return;
+            await api.managerCreateEmployee(name: nameCtrl.text.trim(), email: emailCtrl.text.trim(), password: passCtrl.text.trim());
+            if (mounted) setState(()=> _reloadToken++);
+            if (ctx.mounted) Navigator.pop(ctx,true);
+          }, child: const Text('Tạo')),
+        ],
+      );
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final api = context.watch<ApiService>();
     final me = api.currentUser;
     return FutureBuilder(
+      key: ValueKey(_reloadToken),
       future: api.listUsers(limit: 200, offset: 0),
       builder: (ctx, snap) {
         if (!snap.hasData) return const Center(child: CircularProgressIndicator());
         final users = (snap.data!)
             .where((u) => me?.departmentId != null ? u.departmentId == me!.departmentId : true)
             .toList();
-        if (users.isEmpty) return const Center(child: Text('Không có nhân viên trong phòng'));
-        return ListView.separated(
-          itemCount: users.length,
-          separatorBuilder: (_, __) => const Divider(height: 1),
-          itemBuilder: (_, i) => ListTile(
-            leading: const Icon(Icons.person_outline),
-            title: Text(users[i].name),
-            subtitle: Text(users[i].email),
-          ),
-        );
+        return Stack(children: [
+          if (users.isEmpty)
+            const Center(child: Text('Không có nhân viên trong phòng'))
+          else
+            ListView.separated(
+              itemCount: users.length,
+              separatorBuilder: (_, __) => const Divider(height: 1),
+              itemBuilder: (_, i) => ListTile(
+                leading: const Icon(Icons.person_outline),
+                title: Text(users[i].name),
+                subtitle: Text(users[i].email),
+              ),
+            ),
+          if (me != null && me.role == 'manager')
+            Positioned(
+              bottom: 16,
+              right: 16,
+              child: FloatingActionButton(
+                onPressed: () => _openAddEmployee(context),
+                child: const Icon(Icons.person_add_alt_1),
+              ),
+            )
+        ]);
       },
     );
   }
@@ -139,7 +187,8 @@ class _MeetingsTabState extends State<_MeetingsTab> {
             return ListTile(
               leading: const Icon(Icons.event_note_outlined),
               title: Text(e.title),
-              subtitle: Text('${e.startTime} → ${e.endTime} • ${e.status}'),
+              subtitle: Text('${e.startTime} → ${e.endTime} • ${e.status}${e.isGlobal ? ' • Tất cả' : ''}'),
+              onTap: () => _openEditMeeting(context, e),
             );
           },
         ),
@@ -175,21 +224,38 @@ class _MeetingsTabState extends State<_MeetingsTab> {
               OutlinedButton(onPressed: () async {
                 final now = DateTime.now();
                 final d = await showDatePicker(context: ctx, firstDate: DateTime(now.year-1), lastDate: DateTime(now.year+2), initialDate: now);
-                if (d == null) return; final t = await showTimePicker(context: ctx, initialTime: TimeOfDay.now()); if (t == null) return;
+                if (d == null) { return; }
+                final t = await showTimePicker(context: ctx, initialTime: TimeOfDay.now()); 
+                if (t == null) { return; }
                 setS(() => start = DateTime(d.year,d.month,d.day,t.hour,t.minute));
               }, child: Text(start==null? 'Bắt đầu' : start.toString())),
               OutlinedButton(onPressed: () async {
                 final now = DateTime.now();
                 final d = await showDatePicker(context: ctx, firstDate: DateTime(now.year-1), lastDate: DateTime(now.year+2), initialDate: now);
-                if (d == null) return; final t = await showTimePicker(context: ctx, initialTime: TimeOfDay.now()); if (t == null) return;
+                if (d == null) { return; }
+                final t = await showTimePicker(context: ctx, initialTime: TimeOfDay.now()); 
+                if (t == null) { return; }
                 setS(() => end = DateTime(d.year,d.month,d.day,t.hour,t.minute));
               }, child: Text(end==null? 'Kết thúc' : end.toString())),
               const SizedBox(height: 8),
               DropdownButtonFormField<String>(
-                value: roomId,
+                  initialValue: roomId,
                 items: rooms.map((r) => DropdownMenuItem(value: r.id, child: Text(r.name))).toList(),
                 onChanged: (v) => setS(() => roomId = v),
                 decoration: const InputDecoration(labelText: 'Phòng họp'),
+              ),
+              const SizedBox(height: 8),
+              DropdownButtonFormField<String>(
+                  initialValue: selected.contains('__GLOBAL__') ? '__GLOBAL__' : (me?.departmentId ?? '__GLOBAL__'),
+                items: [
+                  const DropdownMenuItem(value: '__GLOBAL__', child: Text('Tất cả phòng ban')),
+                  if (me?.departmentId != null) DropdownMenuItem(value: me!.departmentId!, child: const Text('Phòng ban của tôi')),
+                ],
+                onChanged: (v) => setS(() {
+                  selected.remove('__GLOBAL__');
+                  if (v == '__GLOBAL__') selected.add('__GLOBAL__');
+                }),
+                decoration: const InputDecoration(labelText: 'Phạm vi họp'),
               ),
               const SizedBox(height: 8),
               const Align(alignment: Alignment.centerLeft, child: Text('Chọn người tham gia', style: TextStyle(fontWeight: FontWeight.w600))),
@@ -208,10 +274,74 @@ class _MeetingsTabState extends State<_MeetingsTab> {
           actions: [
             TextButton(onPressed: ()=> Navigator.pop(ctx), child: const Text('Hủy')),
             ElevatedButton(onPressed: () async {
-              if (titleCtrl.text.trim().isEmpty || start==null || end==null) return;
-              await api.createEvent(title: titleCtrl.text.trim(), start: start, end: end, roomId: roomId, participantIds: selected.toList());
-              if (context.mounted) Navigator.pop(ctx);
+              if (titleCtrl.text.trim().isEmpty || start==null || end==null) { return; }
+              final isGlobal = selected.contains('__GLOBAL__');
+              await api.createEvent(title: titleCtrl.text.trim(), start: start, end: end, roomId: roomId, participantIds: selected.where((x)=>x!='__GLOBAL__').toList(), departmentId: isGlobal ? null : me?.departmentId, isGlobal: isGlobal);
+              if (!mounted) return;
+              if (ctx.mounted) Navigator.pop(ctx);
             }, child: const Text('Tạo'))
+          ],
+        );
+      });
+    });
+  }
+
+  Future<void> _openEditMeeting(BuildContext context, EventModel event) async {
+    final api = context.read<ApiService>();
+    final me = api.currentUser;
+    final rooms = api.rooms;
+    final titleCtrl = TextEditingController(text: event.title);
+    DateTime? start = event.startTime;
+    DateTime? end = event.endTime;
+    String? roomId; // room selection (simplified)
+    await showDialog(context: context, builder: (ctx) {
+      return StatefulBuilder(builder: (ctx, setS) {
+        return AlertDialog(
+          title: const Text('Sửa lịch họp'),
+          content: SingleChildScrollView(
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              TextField(controller: titleCtrl, decoration: const InputDecoration(labelText: 'Tiêu đề')),
+              const SizedBox(height: 8),
+              OutlinedButton(onPressed: () async {
+                final now = DateTime.now();
+                final d = await showDatePicker(context: ctx, firstDate: DateTime(now.year-1), lastDate: DateTime(now.year+2), initialDate: start ?? now);
+                if (d == null) { return; }
+                final t = await showTimePicker(context: ctx, initialTime: TimeOfDay.fromDateTime(start ?? now)); 
+                if (t == null) { return; }
+                setS(() => start = DateTime(d.year,d.month,d.day,t.hour,t.minute));
+              }, child: Text(start==null? 'Bắt đầu' : start.toString())),
+              OutlinedButton(onPressed: () async {
+                final now = DateTime.now();
+                final d = await showDatePicker(context: ctx, firstDate: DateTime(now.year-1), lastDate: DateTime(now.year+2), initialDate: end ?? now);
+                if (d == null) { return; }
+                final t = await showTimePicker(context: ctx, initialTime: TimeOfDay.fromDateTime(end ?? now)); 
+                if (t == null) { return; }
+                setS(() => end = DateTime(d.year,d.month,d.day,t.hour,t.minute));
+              }, child: Text(end==null? 'Kết thúc' : end.toString())),
+              DropdownButtonFormField<String>(
+                initialValue: roomId,
+                items: rooms.map((r) => DropdownMenuItem(value: r.id, child: Text(r.name))).toList(),
+                onChanged: (v) => setS(() => roomId = v),
+                decoration: const InputDecoration(labelText: 'Phòng họp'),
+              ),
+              const SizedBox(height: 8),
+              Text(event.isGlobal ? 'Phạm vi: Tất cả phòng ban' : 'Phạm vi: Phòng ban'),
+            ]),
+          ),
+          actions: [
+            TextButton(onPressed: ()=> Navigator.pop(ctx), child: const Text('Đóng')),
+            if (me != null && (me.role=='admin' || me.role=='manager'))
+              TextButton(onPressed: () async {
+                await api.deleteEvent(event.id);
+                if (!mounted) return;
+                if (ctx.mounted) Navigator.pop(ctx);
+              }, child: const Text('Xóa', style: TextStyle(color: Colors.red))),
+            ElevatedButton(onPressed: () async {
+              if (titleCtrl.text.trim().isEmpty || start==null || end==null) { return; }
+              await api.updateEvent(event.id, title: titleCtrl.text.trim(), start: start, end: end, roomId: roomId);
+              if (!mounted) return;
+              if (ctx.mounted) Navigator.pop(ctx);
+            }, child: const Text('Lưu')),
           ],
         );
       });

@@ -8,6 +8,8 @@ class EventModel {
   final DateTime endTime;
   final String status;
   final List<ParticipantModel> participants;
+  final String? departmentId;
+  final bool isGlobal;
 
   EventModel({
     required this.id,
@@ -17,6 +19,8 @@ class EventModel {
     required this.endTime,
     required this.status,
     this.participants = const [],
+    this.departmentId,
+    this.isGlobal = false,
   });
 
   factory EventModel.fromJson(Map<String, dynamic> json) {
@@ -32,6 +36,8 @@ class EventModel {
       endTime: DateTime.parse(json['end_time'] ?? json['endTime']),
       status: json['status'] ?? 'pending',
       participants: parts,
+      departmentId: json['departmentId'],
+      isGlobal: (json['is_global'] ?? json['isGlobal'] ?? false) == true,
     );
   }
 }

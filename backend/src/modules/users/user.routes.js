@@ -22,10 +22,15 @@ router.use(auth);
  *     responses:
  *       200: { description: OK }
  */
-router.get('/', requireRole('admin'), async (req, res, next) => {
+// Admin: full list; Manager: list only own department
+router.get('/', async (req, res, next) => {
+  if (!req.user) return res.status(401).json({ message: 'Unauthorized' });
+  if (!(req.user.role === 'admin' || req.user.role === 'manager')) return res.status(403).json({ message: 'Forbidden' });
   // ?limit=&offset=
   req.query.limit = Math.min(Number(req.query.limit)||50, 200);
   req.query.offset = Number(req.query.offset)||0;
+  // Signal controller to scope
+  req.query._managerDeptScope = req.user.role === 'manager' ? (req.user.departmentId || 'null') : undefined;
   next();
 }, listUsers);
 /**
@@ -67,7 +72,8 @@ router.get('/:id', selfOrAdmin('id'), getUser);
  */
 router.put('/:id', selfOrAdmin('id'), updateUser);
 // Admin only create/delete
-router.post('/', requireRole('admin'), createUser);
+// Admin create any user; Manager create only employees within own department
+router.post('/', createUser);
 router.delete('/:id', requireRole('admin'), deleteUser);
 
 module.exports = router;

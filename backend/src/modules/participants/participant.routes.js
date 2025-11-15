@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const auth = require('../../middleware/auth.middleware');
-const { listParticipants, addParticipants, updateParticipant } = require('./participant.controller');
+const { listParticipants, addParticipants, updateParticipant, requestAdjustment } = require('./participant.controller');
 
 /**
  * @swagger
@@ -67,5 +67,28 @@ router.post('/', addParticipants);
  *       200: { description: OK }
  */
 router.put('/:id', updateParticipant);
+
+/**
+ * @swagger
+ * /api/participants/{id}/request-adjustment:
+ *   post:
+ *     tags: [Participants]
+ *     summary: Người tham dự yêu cầu điều chỉnh (ghi chú)
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         schema: { type: string }
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               note: { type: string }
+ *               reason: { type: string }
+ *     responses:
+ *       200: { description: OK }
+ */
+router.post('/:id/request-adjustment', requestAdjustment);
 
 module.exports = router;

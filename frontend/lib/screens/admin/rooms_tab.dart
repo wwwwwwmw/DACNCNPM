@@ -42,6 +42,7 @@ class _RoomsTabState extends State<RoomsTab> {
     if (ok == true && nameCtrl.text.trim().isNotEmpty) {
       final cap = int.tryParse(capCtrl.text.trim());
       await context.read<ApiService>().createRoom(nameCtrl.text.trim(), location: locCtrl.text.trim().isEmpty ? null : locCtrl.text.trim(), capacity: cap);
+      if (!mounted) return;
     }
   }
 
@@ -64,6 +65,7 @@ class _RoomsTabState extends State<RoomsTab> {
     if (ok == true && nameCtrl.text.trim().isNotEmpty) {
       final cap = int.tryParse(capCtrl.text.trim());
       await context.read<ApiService>().updateRoom(room.id, name: nameCtrl.text.trim(), location: locCtrl.text.trim().isEmpty ? null : locCtrl.text.trim(), capacity: cap);
+      if (!mounted) return;
     }
   }
 
@@ -76,7 +78,10 @@ class _RoomsTabState extends State<RoomsTab> {
         ElevatedButton(onPressed: () => Navigator.pop(c, true), child: const Text('Xóa')),
       ],
     ));
-    if (ok == true) await context.read<ApiService>().deleteRoom(room.id);
+    if (ok == true) {
+      await context.read<ApiService>().deleteRoom(room.id);
+      if (!mounted) return;
+    }
   }
 
   @override

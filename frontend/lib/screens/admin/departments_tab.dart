@@ -49,6 +49,7 @@ class _DepartmentsTabState extends State<DepartmentsTab> {
     });
     if (ok == true && nameCtrl.text.trim().isNotEmpty) {
       await context.read<ApiService>().createDepartment(nameCtrl.text.trim(), description: descCtrl.text.trim().isEmpty ? null : descCtrl.text.trim());
+      if (!mounted) return;
     }
   }
 
@@ -73,6 +74,7 @@ class _DepartmentsTabState extends State<DepartmentsTab> {
     });
     if (ok == true && nameCtrl.text.trim().isNotEmpty) {
       await context.read<ApiService>().updateDepartment(dep.id, name: nameCtrl.text.trim(), description: descCtrl.text.trim().isEmpty ? null : descCtrl.text.trim());
+      if (!mounted) return;
     }
   }
 
@@ -87,6 +89,7 @@ class _DepartmentsTabState extends State<DepartmentsTab> {
     ));
     if (ok == true) {
       await context.read<ApiService>().deleteDepartment(dep.id);
+      if (!mounted) return;
     }
   }
 

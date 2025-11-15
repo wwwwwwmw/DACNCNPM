@@ -29,7 +29,6 @@ async function start() {
   httpServer.listen(PORT, HOST, () => {
     console.log(`🚀 Server running at http://localhost:${PORT}`);
     console.log(`📘 Swagger UI:          http://localhost:${PORT}/api-docs`);
-    console.log(`🛠 Admin Panel:         http://localhost:${PORT}/admin/index.html`);
   });
   // start reminder cron job
   try { startReminderJob(); } catch (e) { console.warn('Reminder job failed to start:', e.message); }

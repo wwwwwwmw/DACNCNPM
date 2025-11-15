@@ -11,6 +11,7 @@ import '../models/project.dart';
 import '../models/notification.dart';
 import '../models/department.dart';
 import '../models/room.dart';
+import '../models/task_comment.dart';
 
 class ApiService extends ChangeNotifier {
   final String baseUrl;
@@ -217,6 +218,13 @@ class ApiService extends ChangeNotifier {
 
   Future<void> rsvp(String participantId, String status) async {
     await _dio.put('/api/participants/$participantId', data: {'status': status});
+    await fetchEvents();
+  }
+
+  Future<void> requestParticipantAdjustment(String participantId, String note) async {
+    await _dio.post('/api/participants/$participantId/request-adjustment', data: {
+      'note': note,
+    });
     await fetchEvents();
   }
 
@@ -471,6 +479,18 @@ class ApiService extends ChangeNotifier {
   Future<void> updateTaskProgress(String taskId, int progress) async {
     await _dio.put('/api/tasks/$taskId/progress', data: { 'progress': progress });
     await fetchTasks();
+  }
+
+  // ===== Task Comments =====
+  Future<List<TaskCommentModel>> fetchTaskComments(String taskId) async {
+    final res = await _dio.get('/api/tasks/$taskId/comments');
+    final list = (res.data as List).map((e) => TaskCommentModel.fromJson(e as Map<String, dynamic>)).toList();
+    return list;
+  }
+
+  Future<TaskCommentModel> addTaskComment(String taskId, String content) async {
+    final res = await _dio.post('/api/tasks/$taskId/comments', data: { 'content': content });
+    return TaskCommentModel.fromJson(res.data as Map<String, dynamic>);
   }
 
   // ===== System / Backup =====

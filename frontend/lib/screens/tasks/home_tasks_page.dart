@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:frontend/models/project.dart';
 import 'package:provider/provider.dart';
 import 'package:percent_indicator/percent_indicator.dart';
 import '../../services/api_service.dart';
@@ -16,6 +17,8 @@ class HomeTasksPage extends StatefulWidget {
 }
 
 class _HomeTasksPageState extends State<HomeTasksPage> {
+  String? _selectedProjectId;
+  String _search = '';
   @override
   void initState() {
     super.initState();
@@ -32,9 +35,10 @@ class _HomeTasksPageState extends State<HomeTasksPage> {
     final stats = api.taskStats;
     final total = stats['todo']! + stats['in_progress']! + stats['completed']!;
     final completedPct = total == 0 ? 0.0 : stats['completed']! / total;
+    // final cs = Theme.of(context).colorScheme; // reserved for future theming
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF8F9FB),
+      backgroundColor: Theme.of(context).colorScheme.surface,
       body: SafeArea(
         child: ListView(
           padding: const EdgeInsets.all(16),
@@ -45,7 +49,7 @@ class _HomeTasksPageState extends State<HomeTasksPage> {
                 Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                   Text(_greeting(), style: const TextStyle(fontSize: 14, color: Colors.grey)),
                   const SizedBox(height:4),
-                  const Text('Let\'s make a habits\nTogether 🙌', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold))
+                  Text('Hãy cùng tạo thói quen\nnhé 🙌', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold))
                 ]),
                 IconButton(onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const TaskStatusPage())), icon: const Icon(Icons.pie_chart_outline))
               ],
@@ -53,9 +57,24 @@ class _HomeTasksPageState extends State<HomeTasksPage> {
             const SizedBox(height: 16),
             _ProgressCard(completedPct: completedPct, stats: stats),
             const SizedBox(height: 24),
-            const Text('In Progress', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
+            // Filters
+            _FilterBar(
+              projects: api.projects,
+              selectedProjectId: _selectedProjectId,
+              onProjectChanged: (id) async {
+                setState(() => _selectedProjectId = id); 
+                await api.fetchTasks(projectId: id);
+              },
+              search: _search,
+              onSearchChanged: (v) => setState(() { _search = v; }),
+            ),
+            const SizedBox(height: 24),
+            const Text('Đang thực hiện', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
             const SizedBox(height: 12),
-            ...tasks.where((t) => t.status != 'completed').map((t) => _TaskItem(task: t)),
+            ...tasks
+                .where((t) => t.status != 'completed')
+                .where((t) => _search.isEmpty || t.title.toLowerCase().contains(_search.toLowerCase()))
+                .map((t) => _TaskItem(task: t)),
             if (tasks.isEmpty) const Center(child: Padding(padding: EdgeInsets.all(32), child: Text('Chưa có task'))),
           ],
         ),
@@ -72,9 +91,9 @@ class _HomeTasksPageState extends State<HomeTasksPage> {
 
   String _greeting() {
     final h = DateTime.now().hour;
-    if (h < 12) return 'Good Morning';
-    if (h < 18) return 'Good Afternoon';
-    return 'Good Evening';
+    if (h < 12) return 'Chào buổi sáng';
+    if (h < 18) return 'Chào buổi chiều';
+    return 'Chào buổi tối';
   }
 }
 
@@ -84,16 +103,17 @@ class _ProgressCard extends StatelessWidget {
   const _ProgressCard({required this.completedPct, required this.stats});
   @override
   Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
     return Card(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
       elevation: 0,
-      color: const Color(0xFF2D9CDB),
+      color: cs.primary,
       child: Padding(
         padding: const EdgeInsets.all(20),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          const Text('Application Design', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w600)),
+          const Text('Tiến độ công việc', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w600)),
           const SizedBox(height: 4),
-          Text('Progress ${(completedPct*100).round()}%', style: const TextStyle(color: Colors.white70)),
+          Text('Tiến độ ${(completedPct*100).round()}%', style: const TextStyle(color: Colors.white70)),
           const SizedBox(height: 12),
           LinearPercentIndicator(
             lineHeight: 10,
@@ -105,11 +125,11 @@ class _ProgressCard extends StatelessWidget {
           const SizedBox(height: 12),
           Row(
             children: [
-              _StatDot(color: Colors.white, label: 'Completed', value: stats['completed']!.toString()),
+              _StatDot(color: Colors.white, label: 'Hoàn thành', value: stats['completed']!.toString()),
               const SizedBox(width: 12),
-              _StatDot(color: Colors.white70, label: 'In Progress', value: stats['in_progress']!.toString()),
+              _StatDot(color: Colors.white70, label: 'Đang thực hiện', value: stats['in_progress']!.toString()),
               const SizedBox(width: 12),
-              _StatDot(color: Colors.white30, label: 'To Do', value: stats['todo']!.toString()),
+              _StatDot(color: Colors.white30, label: 'Cần làm', value: stats['todo']!.toString()),
             ],
           )
         ]),
@@ -138,12 +158,23 @@ class _TaskItem extends StatelessWidget {
   Widget build(BuildContext context) {
     final acceptedCount = task.assignments.where((a) => a.status == 'accepted' || a.status == 'completed').length;
     final isFull = acceptedCount >= task.capacity;
+    // Compute completion percent: if completed -> 100; else average of assignment progresses
+    double pct;
+    if (task.status == 'completed') {
+      pct = 1.0;
+    } else if (task.assignments.isEmpty) {
+      pct = 0.0;
+    } else {
+      final progresses = task.assignments.map((a) => a.progress).toList();
+      final avg = progresses.reduce((a,b) => a + b) / progresses.length;
+      pct = (avg / 100.0).clamp(0.0, 1.0);
+    }
     return GestureDetector(
       onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => TaskDetailPage(task: task))),
       child: Container(
         margin: const EdgeInsets.only(bottom: 12),
         padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(18)),
+        decoration: BoxDecoration(color: Theme.of(context).cardColor, borderRadius: BorderRadius.circular(18)),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Text(task.title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
           if (task.description != null) Text(task.description!, maxLines:2, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.grey)),
@@ -151,21 +182,69 @@ class _TaskItem extends StatelessWidget {
           Row(children: [
             Chip(label: Text(task.assignmentType)),
             const SizedBox(width: 8),
-            Chip(label: Text('${acceptedCount}/${task.capacity}')),
+            Chip(label: Text('$acceptedCount/${task.capacity}')),
+            const SizedBox(width: 8),
+            Chip(label: Text('W ${task.effectiveWeight}%')),
             if (isFull) ...[
               const SizedBox(width: 8),
               Chip(label: const Text('Đủ người'), backgroundColor: Color(0xFFE8F5E9)),
             ]
           ]),
           const SizedBox(height: 8),
+          // Progress bar
+          LinearPercentIndicator(
+            lineHeight: 8,
+            percent: pct,
+            backgroundColor: Colors.grey.shade200,
+            progressColor: Theme.of(context).colorScheme.primary,
+            barRadius: const Radius.circular(6),
+          ),
+          const SizedBox(height: 4),
+          Text('Hoàn thành ${(pct*100).round()}%', style: const TextStyle(fontSize: 11, color: Colors.black54)),
+          const SizedBox(height: 8),
           Row(children: [
-            Icon(task.status=='completed'?Icons.check_circle:Icons.play_circle_fill, color: const Color(0xFF2D9CDB)),
+            Icon(task.status=='completed'?Icons.check_circle:Icons.play_circle_fill, color: Theme.of(context).colorScheme.primary),
             const SizedBox(width: 6),
             Text(task.status.replaceAll('_',' ').toUpperCase(), style: const TextStyle(fontSize: 12,color: Colors.black54)),
           ])
         ]),
       ),
     );
+  }
+}
+
+class _FilterBar extends StatelessWidget {
+  final List<ProjectModel> projects;
+  final String? selectedProjectId;
+  final ValueChanged<String?> onProjectChanged;
+  final String search;
+  final ValueChanged<String> onSearchChanged;
+  const _FilterBar({required this.projects, required this.selectedProjectId, required this.onProjectChanged, required this.search, required this.onSearchChanged});
+  @override
+  Widget build(BuildContext context) {
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Row(children: [
+        Expanded(
+          child: DropdownButtonFormField<String>(
+            value: selectedProjectId,
+            items: [
+              const DropdownMenuItem(value: null, child: Text('Tất cả dự án')),
+              ...projects.map((p) => DropdownMenuItem(value: p.id, child: Text(p.name)))
+            ],
+            onChanged: onProjectChanged,
+            decoration: const InputDecoration(labelText: 'Dự án'),
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: TextFormField(
+            initialValue: search,
+            onChanged: onSearchChanged,
+            decoration: const InputDecoration(labelText: 'Tìm task', prefixIcon: Icon(Icons.search)),
+          ),
+        ),
+      ]),
+    ]);
   }
 }
 
@@ -188,8 +267,8 @@ class _AddSheet extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.all(24.0),
       child: Column(mainAxisSize: MainAxisSize.min, children: [
-        ListTile(onTap: () { Navigator.pop(context); onAddTask(); }, leading: const Icon(Icons.task_alt), title: const Text('Create Task')),
-        ListTile(onTap: () { Navigator.pop(context); onProjects(); }, leading: const Icon(Icons.workspaces), title: const Text('Projects')),
+        ListTile(onTap: () { Navigator.pop(context); onAddTask(); }, leading: const Icon(Icons.task_alt), title: const Text('Tạo Nhiệm vụ')),
+        ListTile(onTap: () { Navigator.pop(context); onProjects(); }, leading: const Icon(Icons.workspaces), title: const Text('Dự án')),
       ]),
     );
   }

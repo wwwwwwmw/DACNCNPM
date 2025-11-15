@@ -12,6 +12,7 @@ const defineTaskAssignment = require('../modules/tasks/task_assignment.model');
 const defineProject = require('../modules/projects/project.model');
 const defineLabel = require('../modules/labels/label.model');
 const defineTaskLabel = require('../modules/tasks/task_label.model');
+const defineTaskComment = require('./task_comment.model');
 
 // Initialize models
 const Department = defineDepartment(sequelize, DataTypes);
@@ -25,6 +26,7 @@ const Task = defineTask(sequelize, DataTypes);
 const TaskAssignment = defineTaskAssignment(sequelize, DataTypes);
 const Label = defineLabel(sequelize, DataTypes);
 const TaskLabel = defineTaskLabel(sequelize, DataTypes);
+const TaskComment = defineTaskComment(sequelize, DataTypes);
 
 // Associations
 Department.hasMany(User, { foreignKey: 'departmentId' });
@@ -45,6 +47,8 @@ User.hasMany(Notification, { foreignKey: 'userId' });
 Notification.belongsTo(User, { foreignKey: 'userId' });
 
 // Project & Task relations
+Department.hasMany(Project, { foreignKey: 'departmentId' });
+Project.belongsTo(Department, { foreignKey: 'departmentId' });
 Project.hasMany(Task, { foreignKey: 'projectId' });
 Task.belongsTo(Project, { foreignKey: 'projectId' });
 User.hasMany(Task, { foreignKey: 'createdById', as: 'createdTasks' });
@@ -60,6 +64,16 @@ TaskAssignment.belongsTo(Task, { foreignKey: 'taskId' });
 User.hasMany(TaskAssignment, { foreignKey: 'userId', as: 'taskAssignments' });
 TaskAssignment.belongsTo(User, { foreignKey: 'userId' });
 
+// Event department relation
+Department.hasMany(Event, { foreignKey: 'departmentId' });
+Event.belongsTo(Department, { foreignKey: 'departmentId' });
+
+// Task Comments
+Task.hasMany(TaskComment, { foreignKey: 'taskId', as: 'comments' });
+TaskComment.belongsTo(Task, { foreignKey: 'taskId' });
+User.hasMany(TaskComment, { foreignKey: 'userId', as: 'taskComments' });
+TaskComment.belongsTo(User, { foreignKey: 'userId' });
+
 module.exports = {
   sequelize,
   Department,
@@ -73,4 +87,5 @@ module.exports = {
   Label,
   TaskLabel,
   TaskAssignment,
+  TaskComment,
 };

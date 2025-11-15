@@ -11,7 +11,9 @@ module.exports = (sequelize, DataTypes) => {
     priority: { type: DataTypes.ENUM('low','normal','high','urgent'), allowNull: false, defaultValue: 'normal' },
     departmentId: { type: DataTypes.UUID, allowNull: true },
     assignment_type: { type: DataTypes.ENUM('open','direct'), allowNull: false, defaultValue: 'open' },
-    capacity: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 1 }
+    capacity: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 1 },
+    // Trọng số do người dùng nhập (0-100). Nếu null sẽ được phân bổ tự động.
+    weight: { type: DataTypes.INTEGER, allowNull: true, validate: { min: 0, max: 100 } }
   }, {
     tableName: 'tasks',
     timestamps: true,

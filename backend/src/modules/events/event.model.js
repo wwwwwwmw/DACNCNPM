@@ -9,6 +9,8 @@ module.exports = (sequelize, DataTypes) => {
     repeat: { type: DataTypes.STRING, allowNull: true },
     roomId: { type: DataTypes.UUID, allowNull: true },
     createdById: { type: DataTypes.UUID, allowNull: false },
+    departmentId: { type: DataTypes.UUID, allowNull: true },
+    is_global: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
   }, {
     tableName: 'events',
     timestamps: true,

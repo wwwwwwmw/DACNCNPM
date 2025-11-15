@@ -10,6 +10,11 @@ const users = await User.findAll({
   limit: Number(limit), offset: Number(offset),
   order: [['created_at','DESC']]
 });    
+// Manager scope: filter by their department only
+if (req.user && req.user.role === 'manager') {
+  const deptId = req.user.departmentId || null;
+  return res.json(users.filter(u => String(u.departmentId||'') === String(deptId||'')));
+}
 return res.json(users);
   } catch (e) {
     return res.status(500).json({ message: e.message });
@@ -54,11 +59,18 @@ async function updateUser(req, res) {
 
 async function createUser(req, res) {
   try {
-    if (req.user.role !== 'admin') return res.status(403).json({ message: 'Forbidden' });
     const { name, email, password, role = 'employee', departmentId, contact, employeePin, avatarUrl } = req.body;
     if (!name || !email || !password) return res.status(400).json({ message: 'Missing required fields' });
+    if (!(req.user.role === 'admin' || req.user.role === 'manager')) return res.status(403).json({ message: 'Forbidden' });
+    // Manager restrictions
+    if (req.user.role === 'manager') {
+      if (role !== 'employee') return res.status(403).json({ message: 'Manager can only create employees' });
+      if (departmentId && String(departmentId) !== String(req.user.departmentId)) {
+        return res.status(403).json({ message: 'Cannot create user for another department' });
+      }
+    }
     const hash = await bcrypt.hash(password, 10);
-    const user = await User.create({ name, email, password: hash, role, departmentId: departmentId || null, contact, employee_pin: employeePin, avatar_url: avatarUrl });
+    const user = await User.create({ name, email, password: hash, role, departmentId: departmentId || (req.user.role==='manager'? req.user.departmentId : null) || null, contact, employee_pin: employeePin, avatar_url: avatarUrl });
     const plain = user.toJSON();
     delete plain.password;
     return res.status(201).json(plain);

@@ -26,6 +26,9 @@ class ApiService extends ChangeNotifier {
   List<TaskModel> tasks = [];
   List<ProjectModel> projects = [];
   Map<String,int> taskStats = { 'todo':0,'in_progress':0,'completed':0 };
+  // Reports state
+  List<Map<String, dynamic>> reportEventsByMonth = [];
+  List<Map<String, dynamic>> reportEventsByDepartment = [];
 
   ApiService({required this.baseUrl}) {
     _dio = Dio(BaseOptions(baseUrl: baseUrl));
@@ -343,6 +346,29 @@ class ApiService extends ChangeNotifier {
       'in_progress': (data['in_progress'] ?? 0) as int,
       'completed': (data['completed'] ?? 0) as int,
     };
+    notifyListeners();
+  }
+
+  // ============== Reports ==============
+  Future<void> fetchReportEventsByMonth({int? year}) async {
+    final res = await _dio.get('/api/reports/eventsByMonth', queryParameters: {
+      if (year != null) 'year': year,
+    });
+    final list = (res.data as List).map<Map<String, dynamic>>((e) => {
+      'month': (e['month'] is int) ? e['month'] : int.tryParse('${e['month']}') ?? 0,
+      'count': (e['count'] is int) ? e['count'] : int.tryParse('${e['count']}') ?? 0,
+    }).toList();
+    reportEventsByMonth = list;
+    notifyListeners();
+  }
+
+  Future<void> fetchReportEventsByDepartment() async {
+    final res = await _dio.get('/api/reports/eventsByDepartment');
+    final list = (res.data as List).map<Map<String, dynamic>>((e) => {
+      'department': e['department']?.toString() ?? 'Khác',
+      'count': (e['count'] is int) ? e['count'] : int.tryParse('${e['count']}') ?? 0,
+    }).toList();
+    reportEventsByDepartment = list;
     notifyListeners();
   }
 

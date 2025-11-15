@@ -1,6 +1,8 @@
 const express = require('express');
 const router = express.Router();
-const { eventsByMonth, eventsByDepartment } = require('./reports.controller');
+const { eventsByMonth, eventsByDepartment, exportEventsCsv } = require('./reports.controller');
+const auth = require('../../middleware/auth.middleware');
+const { requireRole } = require('../../middleware/role.middleware');
 
 /**
  * @swagger
@@ -30,5 +32,21 @@ router.get('/eventsByMonth', eventsByMonth);
  *     summary: Thống kê lịch theo phòng ban
  */
 router.get('/eventsByDepartment', eventsByDepartment);
+
+/**
+ * @swagger
+ * /api/reports/export/events:
+ *   get:
+ *     tags: [Reports]
+ *     summary: Xuất CSV danh sách lịch công tác
+ *     parameters:
+ *       - in: query
+ *         name: from
+ *         schema: { type: string, format: date-time }
+ *       - in: query
+ *         name: to
+ *         schema: { type: string, format: date-time }
+ */
+router.get('/export/events', auth, requireRole('admin','manager'), exportEventsCsv);
 
 module.exports = router;

@@ -1,5 +1,7 @@
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
+// ignore: avoid_web_libraries_in_flutter
+import 'dart:html' as html;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/user.dart';
 import '../models/event.dart';
@@ -74,7 +76,7 @@ class ApiService extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<EventModel> createEvent({required String title, DateTime? start, DateTime? end, String? description, String? roomId, List<String>? participantIds}) async {
+  Future<EventModel> createEvent({required String title, DateTime? start, DateTime? end, String? description, String? roomId, List<String>? participantIds, String? departmentId, bool isGlobal = false}) async {
     final res = await _dio.post('/api/events', data: {
       'title': title,
       if (description != null) 'description': description,
@@ -82,6 +84,8 @@ class ApiService extends ChangeNotifier {
       if (end != null) 'end_time': end.toIso8601String(),
       if (roomId != null) 'roomId': roomId,
       if (participantIds != null) 'participantIds': participantIds,
+      if (departmentId != null) 'departmentId': departmentId,
+      if (isGlobal) 'isGlobal': true,
     });
     final ev = EventModel.fromJson(res.data);
     events.insert(0, ev);
@@ -284,7 +288,7 @@ class ApiService extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<TaskModel> createTask({required String title, String? description, DateTime? start, DateTime? end, String? status, String? projectId, String? priority, List<String>? labelIds, String assignmentType = 'open', int capacity = 1, String? departmentId}) async {
+  Future<TaskModel> createTask({required String title, String? description, DateTime? start, DateTime? end, String? status, String? projectId, String? priority, List<String>? labelIds, String assignmentType = 'open', int capacity = 1, String? departmentId, int? weight}) async {
     final res = await _dio.post('/api/tasks', data: {
       'title': title,
       if (description != null) 'description': description,
@@ -297,6 +301,7 @@ class ApiService extends ChangeNotifier {
       'assignment_type': assignmentType,
       'capacity': capacity,
       if (departmentId != null) 'departmentId': departmentId,
+      if (weight != null) 'weight': weight,
     });
     final task = TaskModel.fromJson(res.data);
     tasks.insert(0, task);
@@ -304,7 +309,7 @@ class ApiService extends ChangeNotifier {
     return task;
   }
 
-  Future<TaskModel> updateTask(String id, {String? title, String? description, DateTime? start, DateTime? end, String? status, String? projectId, String? priority, List<String>? labelIds, String? assignmentType, int? capacity}) async {
+  Future<TaskModel> updateTask(String id, {String? title, String? description, DateTime? start, DateTime? end, String? status, String? projectId, String? priority, List<String>? labelIds, String? assignmentType, int? capacity, int? weight}) async {
     final res = await _dio.put('/api/tasks/$id', data: {
       if (title != null) 'title': title,
       if (description != null) 'description': description,
@@ -316,6 +321,7 @@ class ApiService extends ChangeNotifier {
       if (labelIds != null) 'labelIds': labelIds,
       if (assignmentType != null) 'assignment_type': assignmentType,
       if (capacity != null) 'capacity': capacity,
+      if (weight != null) 'weight': weight,
     });
     final task = TaskModel.fromJson(res.data);
   tasks = tasks.map((t) => t.id == id ? task : t).toList();
@@ -361,9 +367,53 @@ class ApiService extends ChangeNotifier {
     return p;
   }
 
+  Future<ProjectModel> updateProject(String id, {String? name, String? description}) async {
+    final res = await _dio.put('/api/projects/$id', data: {
+      if (name != null) 'name': name,
+      if (description != null) 'description': description,
+    });
+    final p = ProjectModel.fromJson(res.data);
+    projects = projects.map((e) => e.id == id ? p : e).toList();
+    notifyListeners();
+    return p;
+  }
+
+  Future<void> deleteProject(String id) async {
+    await _dio.delete('/api/projects/$id');
+    projects.removeWhere((p) => p.id == id);
+    notifyListeners();
+  }
+
+  Future<UserModel> managerCreateEmployee({required String name, required String email, required String password}) async {
+    final res = await _dio.post('/api/users', data: {
+      'name': name,
+      'email': email,
+      'password': password,
+      'role': 'employee',
+      if (currentUser?.departmentId != null) 'departmentId': currentUser!.departmentId,
+    });
+    return UserModel.fromJson(res.data);
+  }
+
   Future<void> rejectTask(String taskId, String reason) async {
     await _dio.post('/api/tasks/$taskId/reject', data: { 'reason': reason });
     await fetchTasks();
+  }
+
+  Future<void> approveTaskRejection(String taskId, {String? userId}) async {
+    await _dio.post('/api/tasks/$taskId/rejection/approve', data: {
+      if (userId != null) 'userId': userId,
+    });
+    await fetchTasks();
+    await fetchNotifications();
+  }
+
+  Future<void> denyTaskRejection(String taskId, {String? userId}) async {
+    await _dio.post('/api/tasks/$taskId/rejection/deny', data: {
+      if (userId != null) 'userId': userId,
+    });
+    await fetchTasks();
+    await fetchNotifications();
   }
 
   // Read-only list of tasks for a given project, without mutating global state
@@ -394,5 +444,32 @@ class ApiService extends ChangeNotifier {
   Future<void> updateTaskProgress(String taskId, int progress) async {
     await _dio.put('/api/tasks/$taskId/progress', data: { 'progress': progress });
     await fetchTasks();
+  }
+
+  // ===== System / Backup =====
+  Future<void> downloadBackup() async {
+    final endpoint = '/api/backup/create';
+    if (kIsWeb) {
+      final res = await _dio.get<List<int>>(endpoint, options: Options(responseType: ResponseType.bytes));
+      final bytes = res.data;
+      if (bytes == null) throw Exception('No data');
+      String filename = 'backup.sql';
+      final cd = res.headers.map['content-disposition']?.join(';') ?? '';
+      final match = RegExp(r'filename\*=UTF-8\''"?([^";]+)"?|filename="?([^";]+)"?').firstMatch(cd);
+      if (match != null) {
+        filename = match.group(1) ?? match.group(2) ?? filename;
+      }
+      final blob = html.Blob([bytes], 'application/sql');
+      final url = html.Url.createObjectUrlFromBlob(blob);
+      final anchor = html.AnchorElement(href: url)..download = filename;
+      html.document.body?.append(anchor);
+      anchor.click();
+      anchor.remove();
+      html.Url.revokeObjectUrl(url);
+    } else {
+      // Non-web: hiện tại chỉ thực hiện gọi để server tạo file, và thông báo.
+      // Có thể mở rộng: lưu vào thư mục ứng dụng bằng path_provider.
+      await _dio.get(endpoint, options: Options(responseType: ResponseType.bytes));
+    }
   }
 }

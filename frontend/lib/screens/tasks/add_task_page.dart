@@ -192,115 +192,134 @@ class _AddTaskPageState extends State<AddTaskPage> {
         child: Form(
           key: _formKey,
           child: ListView(children: [
-            TextFormField(controller: _titleCtrl, decoration: const InputDecoration(labelText: 'Tên công việc'), validator: (v)=> v==null||v.isEmpty? 'Không được để trống':null),
-            const SizedBox(height:12),
-            TextFormField(controller: _descCtrl, decoration: const InputDecoration(labelText: 'Mô tả'), maxLines:3),
-            const SizedBox(height:12),
-            Row(children: [
-              Expanded(child: OutlinedButton(onPressed: ()=>_pickDate(true), child: Text(_start==null? 'Thời gian bắt đầu': _start.toString()))),
-              const SizedBox(width:8),
-              Expanded(child: OutlinedButton(onPressed: ()=>_pickDate(false), child: Text(_end==null? 'Thời gian kết thúc': _end.toString()))),
-            ]),
-            const SizedBox(height:12),
-            // Project selection (required)
-            Builder(builder: (ctx) {
-              final api = context.watch<ApiService>();
-              final items = api.projects
-                  .map((p) => DropdownMenuItem<String>(value: p.id, child: Text(p.name)))
-                  .toList();
-              final isLocked = widget.preselectedProjectId != null;
-              return DropdownButtonFormField<String>(
-                initialValue: _projectId,
-                items: items,
-                onChanged: isLocked ? null : (v) => setState(()=> _projectId = v),
-                validator: (v)=> v==null? 'Chọn dự án trước khi tạo công việc': null,
-                decoration: const InputDecoration(labelText: 'Dự án'),
-              );
-            }),
-            const SizedBox(height:12),
-            DropdownButtonFormField(initialValue: _status, items: const [
-              DropdownMenuItem(value: 'todo', child: Text('Cần làm')),
-              DropdownMenuItem(value: 'in_progress', child: Text('Đang làm')),
-              DropdownMenuItem(value: 'completed', child: Text('Hoàn thành')),
-            ], onChanged: (v)=> setState(()=> _status = v as String), decoration: const InputDecoration(labelText: 'Trạng thái')),
-            const SizedBox(height:12),
-            DropdownButtonFormField(initialValue: _priority, items: const [
-              DropdownMenuItem(value: 'low', child: Text('Thấp')),
-              DropdownMenuItem(value: 'normal', child: Text('Bình thường')),
-              DropdownMenuItem(value: 'high', child: Text('Cao')),
-              DropdownMenuItem(value: 'urgent', child: Text('Khẩn cấp')),
-            ], onChanged: (v)=> setState(()=> _priority = v as String), decoration: const InputDecoration(labelText: 'Độ ưu tiên')),
-            const SizedBox(height:12),
-            DropdownButtonFormField(
-              initialValue: _assignmentType,
-              items: const [
-                DropdownMenuItem(value: 'open', child: Text('Mở (tự nhận)')),
-                DropdownMenuItem(value: 'direct', child: Text('Trực tiếp (phân công)')),
-              ],
-              onChanged: (v) => setState(() => _assignmentType = v as String),
-              decoration: const InputDecoration(labelText: 'Hình thức giao việc'),
+            Text('Thông tin cơ bản', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            Card(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              child: Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Column(children: [
+                  TextFormField(controller: _titleCtrl, decoration: const InputDecoration(labelText: 'Tên công việc'), validator: (v)=> v==null||v.isEmpty? 'Không được để trống':null),
+                  const SizedBox(height:12),
+                  TextFormField(controller: _descCtrl, decoration: const InputDecoration(labelText: 'Mô tả'), maxLines:3),
+                  const SizedBox(height:12),
+                  Builder(builder: (ctx) {
+                    final api = context.watch<ApiService>();
+                    final items = api.projects
+                        .map((p) => DropdownMenuItem<String>(value: p.id, child: Text(p.name)))
+                        .toList();
+                    final isLocked = widget.preselectedProjectId != null;
+                    return DropdownButtonFormField<String>(
+                      initialValue: _projectId,
+                      items: items,
+                      onChanged: isLocked ? null : (v) => setState(()=> _projectId = v),
+                      validator: (v)=> v==null? 'Chọn dự án trước khi tạo công việc': null,
+                      decoration: const InputDecoration(labelText: 'Dự án'),
+                    );
+                  }),
+                ]),
+              ),
             ),
-            const SizedBox(height:12),
-            TextFormField(
-              initialValue: _capacity.toString(),
-              decoration: const InputDecoration(labelText: 'Số chỗ (slots)'),
-              keyboardType: TextInputType.number,
-              onChanged: (v) {
-                final n = int.tryParse(v.trim());
-                setState(() { _capacity = (n == null || n < 1) ? 1 : n; });
-              },
+            const SizedBox(height: 16),
+            Text('Chi tiết', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            Card(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              child: Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Column(children: [
+                  Row(children: [
+                    Expanded(child: OutlinedButton(onPressed: ()=>_pickDate(true), child: Text(_start==null? 'Thời gian bắt đầu': _start.toString()))),
+                    const SizedBox(width:8),
+                    Expanded(child: OutlinedButton(onPressed: ()=>_pickDate(false), child: Text(_end==null? 'Thời gian kết thúc': _end.toString()))),
+                  ]),
+                  const SizedBox(height:12),
+                  DropdownButtonFormField(initialValue: _status, items: const [
+                    DropdownMenuItem(value: 'todo', child: Text('Cần làm')),
+                    DropdownMenuItem(value: 'in_progress', child: Text('Đang làm')),
+                    DropdownMenuItem(value: 'completed', child: Text('Hoàn thành')),
+                  ], onChanged: (v)=> setState(()=> _status = v as String), decoration: const InputDecoration(labelText: 'Trạng thái')),
+                  const SizedBox(height:12),
+                  DropdownButtonFormField(initialValue: _priority, items: const [
+                    DropdownMenuItem(value: 'low', child: Text('Thấp')),
+                    DropdownMenuItem(value: 'normal', child: Text('Bình thường')),
+                    DropdownMenuItem(value: 'high', child: Text('Cao')),
+                    DropdownMenuItem(value: 'urgent', child: Text('Khẩn cấp')),
+                  ], onChanged: (v)=> setState(()=> _priority = v as String), decoration: const InputDecoration(labelText: 'Độ ưu tiên')),
+                  const SizedBox(height:12),
+                  DropdownButtonFormField(
+                    initialValue: _assignmentType,
+                    items: const [
+                      DropdownMenuItem(value: 'open', child: Text('Mở (tự nhận)')),
+                      DropdownMenuItem(value: 'direct', child: Text('Trực tiếp (phân công)')),
+                    ],
+                    onChanged: (v) => setState(() => _assignmentType = v as String),
+                    decoration: const InputDecoration(labelText: 'Hình thức giao việc'),
+                  ),
+                  const SizedBox(height:12),
+                  DropdownButtonFormField<int>(
+                    initialValue: _capacity,
+                    items: List.generate(10, (i) => i+1).map((v) => DropdownMenuItem(value: v, child: Text('$v chỗ'))).toList(),
+                    onChanged: (v) => setState(() { _capacity = v ?? 1; }),
+                    decoration: const InputDecoration(labelText: 'Số chỗ (slots)'),
+                  ),
+                  const SizedBox(height:12),
+                  TextFormField(
+                    controller: _weightCtrl,
+                    decoration: const InputDecoration(labelText: 'Trọng số (%) - để trống nếu tự phân bổ'),
+                    keyboardType: TextInputType.number,
+                    validator: (v) {
+                      if (v == null || v.trim().isEmpty) return null; // optional
+                      final n = int.tryParse(v.trim());
+                      if (n == null) return 'Số không hợp lệ';
+                      if (n < 0 || n > 100) return '0-100';
+                      return null;
+                    },
+                    onChanged: (val) async {
+                      if (_projectId != null) {
+                        final sum = await _sumExplicitWeights(_projectId!, excludingTaskId: widget.editing?.id);
+                        if (!mounted) return;
+                        if (sum > 100) {
+                          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Cảnh báo: Tổng trọng số vượt 100%'), backgroundColor: Colors.red));
+                        }
+                      }
+                    },
+                  ),
+                  if (_assignmentType == 'direct') ...[
+                    const SizedBox(height: 12),
+                    Builder(builder: (ctx){
+                      final me = context.read<ApiService>().currentUser;
+                      if (me == null || (me.role != 'manager' && me.role != 'admin')) return const SizedBox.shrink();
+                      return DropdownButtonFormField<String>(
+                        initialValue: _assigneeId,
+                        items: _deptUsers.map((u) => DropdownMenuItem(value: u['id']!, child: Text(u['name']!))).toList(),
+                        onChanged: (v) => setState(()=> _assigneeId = v),
+                        decoration: const InputDecoration(labelText: 'Giao cho (phòng ban)'),
+                      );
+                    })
+                  ],
+                  const SizedBox(height:12),
+                  Builder(builder: (ctx) {
+                    final api = context.read<ApiService>();
+                    final me = api.currentUser;
+                    if (me != null && me.role == 'admin') {
+                      return DropdownButtonFormField<String>(
+                        initialValue: _departmentId,
+                        items: _departments.map((d) => DropdownMenuItem(value: d.id, child: Text(d.name))).toList(),
+                        onChanged: (v) => setState(() => _departmentId = v),
+                        decoration: const InputDecoration(labelText: 'Phòng ban (chỉ admin)'),
+                      );
+                    }
+                    return const SizedBox.shrink();
+                  }),
+                ]),
+              ),
             ),
-            const SizedBox(height:12),
-            TextFormField(
-              controller: _weightCtrl,
-              decoration: const InputDecoration(labelText: 'Trọng số (%) - để trống nếu tự phân bổ'),
-              keyboardType: TextInputType.number,
-              validator: (v) {
-                if (v == null || v.trim().isEmpty) return null; // optional
-                final n = int.tryParse(v.trim());
-                if (n == null) return 'Số không hợp lệ';
-                if (n < 0 || n > 100) return '0-100';
-                return null;
-              },
-              onChanged: (val) async {
-                if (_projectId != null) {
-                  final sum = await _sumExplicitWeights(_projectId!, excludingTaskId: widget.editing?.id);
-                  if (!mounted) return;
-                  if (sum > 100) {
-                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Cảnh báo: Tổng trọng số vượt 100%'), backgroundColor: Colors.red));
-                  }
-                }
-              },
-            ),
-            if (_assignmentType == 'direct') ...[
-              const SizedBox(height: 12),
-              Builder(builder: (ctx){
-                final me = context.read<ApiService>().currentUser;
-                if (me == null || (me.role != 'manager' && me.role != 'admin')) return const SizedBox.shrink();
-                return DropdownButtonFormField<String>(
-                  initialValue: _assigneeId,
-                  items: _deptUsers.map((u) => DropdownMenuItem(value: u['id']!, child: Text(u['name']!))).toList(),
-                  onChanged: (v) => setState(()=> _assigneeId = v),
-                  decoration: const InputDecoration(labelText: 'Giao cho (phòng ban)'),
-                );
-              })
-            ],
-            const SizedBox(height:12),
-            Builder(builder: (ctx) {
-              final api = context.read<ApiService>();
-              final me = api.currentUser;
-              if (me != null && me.role == 'admin') {
-                return DropdownButtonFormField<String>(
-                  initialValue: _departmentId,
-                  items: _departments.map((d) => DropdownMenuItem(value: d.id, child: Text(d.name))).toList(),
-                  onChanged: (v) => setState(() => _departmentId = v),
-                  decoration: const InputDecoration(labelText: 'Phòng ban (chỉ admin)'),
-                );
-              }
-              return const SizedBox.shrink();
-            }),
             const SizedBox(height:24),
-            ElevatedButton(onPressed: _save, child: const Text('Lưu'))
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(onPressed: _save, child: const Text('Lưu')),
+            )
           ]),
         ),
       ),

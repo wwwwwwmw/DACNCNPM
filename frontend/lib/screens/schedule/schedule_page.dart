@@ -3,7 +3,8 @@ import 'package:provider/provider.dart';
 import 'package:table_calendar/table_calendar.dart';
 import '../../services/api_service.dart';
 import '../../models/event.dart';
-import 'package:intl/intl.dart';
+// Removed direct DateFormat usage; EventListItemCard handles time formatting
+import '../../widgets/event_list_item_card.dart';
 
 class SchedulePage extends StatefulWidget {
   const SchedulePage({super.key});
@@ -108,12 +109,10 @@ class _SchedulePageState extends State<SchedulePage> {
               itemCount: selectedEvents.length,
               itemBuilder: (ctx, i) {
                 final e = selectedEvents[i];
-                return Card(
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                  child: ListTile(
-                    title: Text(e.title),
-                    subtitle: Text('${DateFormat('HH:mm').format(e.startTime)} - ${DateFormat('HH:mm').format(e.endTime)} • ${e.status}'),
+                return Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  child: EventListItemCard(
+                    event: e,
                     trailing: (me != null && e.participants.isNotEmpty)
                         ? Builder(builder: (_) {
                             final mine = e.participants.firstWhere(
@@ -147,9 +146,8 @@ class _SchedulePageState extends State<SchedulePage> {
                                   });
                                   if (reason != null && reason.isNotEmpty) {
                                     await api.requestParticipantAdjustment(pid, reason);
-                                    if (mounted) {
-                                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Đã gửi yêu cầu điều chỉnh')));
-                                    }
+                                    if (!context.mounted) return;
+                                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Đã gửi yêu cầu điều chỉnh')));
                                   }
                                 },
                                 child: const Text('Yêu cầu điều chỉnh'),

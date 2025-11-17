@@ -5,6 +5,7 @@ const defineUser = require('../modules/users/user.model');
 const defineDepartment = require('../modules/departments/department.model');
 const defineRoom = require('../modules/rooms/room.model');
 const defineEvent = require('../modules/events/event.model');
+const defineEventDepartment = require('../modules/events/event_department.model');
 const defineParticipant = require('../modules/participants/participant.model');
 const defineNotification = require('../modules/notifications/notification.model');
 const defineTask = require('../modules/tasks/task.model');
@@ -19,6 +20,7 @@ const Department = defineDepartment(sequelize, DataTypes);
 const User = defineUser(sequelize, DataTypes);
 const Room = defineRoom(sequelize, DataTypes);
 const Event = defineEvent(sequelize, DataTypes);
+const EventDepartment = defineEventDepartment(sequelize, DataTypes);
 const Participant = defineParticipant(sequelize, DataTypes);
 const Notification = defineNotification(sequelize, DataTypes);
 const Project = defineProject(sequelize, DataTypes);
@@ -67,6 +69,9 @@ TaskAssignment.belongsTo(User, { foreignKey: 'userId' });
 // Event department relation
 Department.hasMany(Event, { foreignKey: 'departmentId' });
 Event.belongsTo(Department, { foreignKey: 'departmentId' });
+// Extra departments many-to-many
+Event.belongsToMany(Department, { through: EventDepartment, as: 'extraDepartments', foreignKey: 'eventId' });
+Department.belongsToMany(Event, { through: EventDepartment, as: 'multiEvents', foreignKey: 'departmentId' });
 
 // Task Comments
 Task.hasMany(TaskComment, { foreignKey: 'taskId', as: 'comments' });
@@ -88,4 +93,5 @@ module.exports = {
   TaskLabel,
   TaskAssignment,
   TaskComment,
+  EventDepartment,
 };

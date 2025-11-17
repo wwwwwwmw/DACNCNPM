@@ -1,3 +1,4 @@
+// ignore_for_file: use_build_context_synchronously
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../models/task.dart';
@@ -84,147 +85,174 @@ class _TaskDetailPageState extends State<TaskDetailPage> {
         padding: const EdgeInsets.all(16.0),
         child: SingleChildScrollView(
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(task.title, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 8),
-            if (task.description != null) Text(task.description!),
-            const SizedBox(height: 16),
-            Wrap(spacing:8, runSpacing: 8, children: [
-              Chip(label: Text(task.status.replaceAll('_',' '))),
-              Chip(label: Text('Độ ưu tiên: ${task.priority}')),
-              Chip(label: Text('Hình thức: ${task.assignmentType}')),
-              Chip(label: Text('Chỗ: $acceptedCount / ${task.capacity}')),
-              if (isFull) Chip(label: const Text('Đủ người'), backgroundColor: Theme.of(context).colorScheme.secondary.withOpacity(0.2)),
-            ]),
-            const SizedBox(height: 16),
-            if (task.startTime != null) Text('Bắt đầu: ${task.startTime}'),
-            if (task.endTime != null) Text('Kết thúc: ${task.endTime}'),
-            const SizedBox(height: 24),
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text(task.title, style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 8),
+                  if (task.description != null) Text(task.description!),
+                  const SizedBox(height: 12),
+                  Wrap(spacing:8, runSpacing: 8, children: [
+                    Chip(label: Text(task.status.replaceAll('_',' '))),
+                    Chip(label: Text('Độ ưu tiên: ${task.priority}')),
+                    Chip(label: Text('Hình thức: ${task.assignmentType}')),
+                    Chip(label: Text('Chỗ: $acceptedCount / ${task.capacity}')),
+                    if (isFull) Chip(label: const Text('Đủ người'), backgroundColor: Theme.of(context).colorScheme.secondary.withValues(alpha: 0.18)),
+                  ]),
+                  const SizedBox(height: 8),
+                  if (task.startTime != null) Text('Bắt đầu: ${task.startTime}'),
+                  if (task.endTime != null) Text('Kết thúc: ${task.endTime}'),
+                ]),
+              ),
+            ),
 
-            // Employee actions
             if (currentUser != null && currentUser.role == 'employee') ...[
-              if (task.assignmentType == 'open' && myAsg == null) ...[
-                ElevatedButton.icon(
-                  onPressed: (isFull || task.status == 'completed') ? null : () async {
-                    await context.read<ApiService>().applyTask(task.id);
-                    if (!mounted) return; 
-                    Navigator.pop(context); // return to reload list
-                  },
-                  icon: const Icon(Icons.how_to_reg),
-                  label: const Text('Nhận nhiệm vụ này'),
-                )
-              ],
-              if (myAsg != null && myAsg.status == 'assigned') ...[
-                ElevatedButton.icon(
-                  onPressed: (isFull || task.status == 'completed') ? null : () async {
-                    await context.read<ApiService>().acceptTask(task.id);
-                    if (!mounted) return; 
-                    Navigator.pop(context);
-                  },
-                  icon: const Icon(Icons.check_circle),
-                  label: const Text('Chấp nhận'),
-                )
-              ],
-              if (myAsg != null && (myAsg.status == 'assigned' || myAsg.status == 'accepted') && myAsg.status != 'completed') ...[
-                const SizedBox(height: 8),
-                ElevatedButton.icon(
-                  style: ElevatedButton.styleFrom(backgroundColor: Theme.of(context).colorScheme.error),
-                  onPressed: () async {
-                    final reason = await _askRejectReason(context);
-                    if (reason != null && reason.trim().isNotEmpty) {
-                      await context.read<ApiService>().rejectTask(task.id, reason.trim());
-                      if (!mounted) return; 
-                      Navigator.pop(context);
-                    }
-                  },
-                  icon: const Icon(Icons.block),
-                  label: const Text('Từ chối nhiệm vụ'),
-                )
-              ],
-              if (myAsg != null) ...[
-                const SizedBox(height: 12),
-                Text('Tiến độ của bạn: ${(myAsg.progress)}%'),
-                Slider(
-                  min: 0,
-                  max: 100,
-                  divisions: 20,
-                  value: (_progressDraft ?? myAsg.progress.toDouble()).clamp(0,100),
-                  onChanged: (task.status == 'completed' || myAsg.status == 'completed') ? null : (v) => setState(() { _progressDraft = v; }),
-                  label: '${(_progressDraft ?? myAsg.progress).round()}%',
+              const SizedBox(height: 12),
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                    if (task.assignmentType == 'open' && myAsg == null)
+                      ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
+                        onPressed: (isFull || task.status == 'completed') ? null : () async {
+                          await context.read<ApiService>().applyTask(task.id);
+                          if (!mounted) return; 
+                          Navigator.pop(context);
+                        },
+                        icon: const Icon(Icons.how_to_reg),
+                        label: const Text('Nhận nhiệm vụ này'),
+                      ),
+                    if (myAsg != null && myAsg.status == 'assigned') ...[
+                      ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
+                        onPressed: (isFull || task.status == 'completed') ? null : () async {
+                          await context.read<ApiService>().acceptTask(task.id);
+                          if (!mounted) return; 
+                          Navigator.pop(context);
+                        },
+                        icon: const Icon(Icons.check_circle),
+                        label: const Text('Chấp nhận'),
+                      ),
+                      const SizedBox(height: 8),
+                    ],
+                    if (myAsg != null && (myAsg.status == 'assigned' || myAsg.status == 'accepted') && myAsg.status != 'completed')
+                      ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(backgroundColor: Theme.of(context).colorScheme.error),
+                        onPressed: () async {
+                          final reason = await _askRejectReason(context);
+                          if (reason != null && reason.trim().isNotEmpty) {
+                            await context.read<ApiService>().rejectTask(task.id, reason.trim());
+                            if (!mounted) return; 
+                            Navigator.pop(context);
+                          }
+                        },
+                        icon: const Icon(Icons.block),
+                        label: const Text('Từ chối nhiệm vụ'),
+                      ),
+                    if (myAsg != null) ...[
+                      const SizedBox(height: 12),
+                      Text('Tiến độ của bạn: ${(myAsg.progress)}%'),
+                      Slider(
+                        min: 0,
+                        max: 100,
+                        divisions: 20,
+                        value: (_progressDraft ?? myAsg.progress.toDouble()).clamp(0,100),
+                        onChanged: (task.status == 'completed' || myAsg.status == 'completed') ? null : (v) => setState(() { _progressDraft = v; }),
+                        label: '${(_progressDraft ?? myAsg.progress).round()}%',
+                      ),
+                      ElevatedButton.icon(
+                        onPressed: (task.status == 'completed' || myAsg.status == 'completed') ? null : () async {
+                          final value = (_progressDraft ?? myAsg.progress.toDouble()).round();
+                          await context.read<ApiService>().updateTaskProgress(task.id, value);
+                          if (!mounted) return; 
+                          Navigator.pop(context);
+                        },
+                        icon: const Icon(Icons.save),
+                        label: const Text('Cập nhật tiến độ'),
+                      )
+                    ]
+                  ]),
                 ),
-                ElevatedButton.icon(
-                  onPressed: (task.status == 'completed' || myAsg.status == 'completed') ? null : () async {
-                    final value = (_progressDraft ?? myAsg.progress.toDouble()).round();
-                    await context.read<ApiService>().updateTaskProgress(task.id, value);
-                    if (!mounted) return; 
-                    Navigator.pop(context);
-                  },
-                  icon: const Icon(Icons.save),
-                  label: const Text('Cập nhật tiến độ'),
-                )
-              ]
+              ),
             ],
 
-            // Manager/Admin actions
-            if (currentUser != null && (currentUser.role == 'manager' || currentUser.role == 'admin')) ...[
-              const SizedBox(height: 16),
-              Text('Assignments', style: Theme.of(context).textTheme.titleMedium),
-              const SizedBox(height: 8),
-              if (assignments.isEmpty) const Text('No assignments yet'),
-              ...assignments.map((a) => ListTile(
-                leading: const Icon(Icons.person_outline),
-                title: Text(a.user?.name ?? a.userId),
-                subtitle: Text('${a.status} • ${a.progress}%'),
-              )),
-              const SizedBox(height: 8),
-              ElevatedButton.icon(
-                onPressed: () async {
-                  final selected = await _pickUser(context);
-                  if (selected != null) {
-                    await context.read<ApiService>().assignTask(task.id, selected);
-                    if (!mounted) return; 
-                    Navigator.pop(context);
-                  }
-                },
-                icon: const Icon(Icons.person_add_alt_1),
-                label: const Text('Assign user'),
-              ),
-              const SizedBox(height: 8),
-              ElevatedButton.icon(
-                onPressed: () {
-                  Navigator.push(context, MaterialPageRoute(builder: (_) => AddTaskPage(editing: task)));
-                },
-                icon: const Icon(Icons.edit),
-                label: const Text('Sửa công việc'),
-              ),
-            ] else ...[
-              const SizedBox(height: 24),
-              ElevatedButton.icon(
-                onPressed: () {
-                  Navigator.push(context, MaterialPageRoute(builder: (_) => AddTaskPage(editing: task)));
-                },
-                icon: const Icon(Icons.edit),
-                label: const Text('Sửa'),
+            const SizedBox(height: 12),
+            if (currentUser != null && (currentUser.role == 'manager' || currentUser.role == 'admin'))
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                    Text('Phân công', style: Theme.of(context).textTheme.titleMedium),
+                    const SizedBox(height: 8),
+                    if (assignments.isEmpty) const Text('Chưa có phân công'),
+                    ...assignments.map((a) => ListTile(
+                      leading: const Icon(Icons.person_outline),
+                      title: Text(a.user?.name ?? a.userId),
+                      subtitle: Text('${a.status} • ${a.progress}%'),
+                    )),
+                    const SizedBox(height: 8),
+                    ElevatedButton.icon(
+                      onPressed: () async {
+                        final selected = await _pickUser(context);
+                        if (selected != null) {
+                          await context.read<ApiService>().assignTask(task.id, selected);
+                          if (!mounted) return; 
+                          Navigator.pop(context);
+                        }
+                      },
+                      icon: const Icon(Icons.person_add_alt_1),
+                      label: const Text('Giao cho người dùng'),
+                    ),
+                    const SizedBox(height: 8),
+                    ElevatedButton.icon(
+                      onPressed: () { Navigator.push(context, MaterialPageRoute(builder: (_) => AddTaskPage(editing: task))); },
+                      icon: const Icon(Icons.edit),
+                      label: const Text('Sửa công việc'),
+                    )
+                  ]),
+                ),
+              )
+            else ...[
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: ElevatedButton.icon(
+                    onPressed: () { Navigator.push(context, MaterialPageRoute(builder: (_) => AddTaskPage(editing: task))); },
+                    icon: const Icon(Icons.edit),
+                    label: const Text('Sửa'),
+                  ),
+                ),
               )
             ],
-            const SizedBox(height: 24),
-            Text('Bình luận', style: Theme.of(context).textTheme.titleMedium),
-            const SizedBox(height: 8),
-            if (_loadingComments) const Padding(padding: EdgeInsets.symmetric(vertical: 12), child: CircularProgressIndicator()),
-            if (!_loadingComments && _comments.isEmpty) const Text('Chưa có bình luận'),
-            if (!_loadingComments && _comments.isNotEmpty)
-              ListView.builder(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                itemCount: _comments.length,
-                itemBuilder: (ctx, i) {
-                  final c = _comments[i];
-                  return ListTile(
-                    leading: const Icon(Icons.chat_bubble_outline),
-                    title: Text(c.user?.name ?? c.userId),
-                    subtitle: Text(c.content),
-                  );
-                },
+
+            const SizedBox(height: 12),
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text('Bình luận', style: Theme.of(context).textTheme.titleMedium),
+                  const SizedBox(height: 8),
+                  if (_loadingComments) const Padding(padding: EdgeInsets.symmetric(vertical: 12), child: CircularProgressIndicator()),
+                  if (!_loadingComments && _comments.isEmpty) const Text('Chưa có bình luận'),
+                  if (!_loadingComments && _comments.isNotEmpty)
+                    ListView.builder(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      itemCount: _comments.length,
+                      itemBuilder: (ctx, i) {
+                        final c = _comments[i];
+                        return ListTile(
+                          leading: const Icon(Icons.chat_bubble_outline),
+                          title: Text(c.user?.name ?? c.userId),
+                          subtitle: Text(c.content),
+                        );
+                      },
+                    ),
+                ]),
               ),
+            ),
           ]),
         ),
       ),
@@ -245,20 +273,23 @@ class _TaskDetailPageState extends State<TaskDetailPage> {
                 ),
               ),
               const SizedBox(width: 8),
-              ElevatedButton(
-                onPressed: () async {
-                  final text = _commentCtrl.text.trim();
-                  if (text.isEmpty) return;
-                  try {
-                    final api = context.read<ApiService>();
-                    final cm = await api.addTaskComment(widget.task.id, text);
-                    setState(() { _comments.add(cm); _commentCtrl.clear(); });
-                  } catch (e) {
-                    if (!mounted) return;
-                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Gửi bình luận thất bại')));
-                  }
-                },
-                child: const Text('Gửi'),
+              SizedBox(
+                height: 48,
+                child: ElevatedButton(
+                  onPressed: () async {
+                    final text = _commentCtrl.text.trim();
+                    if (text.isEmpty) return;
+                    try {
+                      final api = context.read<ApiService>();
+                      final cm = await api.addTaskComment(widget.task.id, text);
+                      setState(() { _comments.add(cm); _commentCtrl.clear(); });
+                    } catch (e) {
+                      if (!mounted) return;
+                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Gửi bình luận thất bại')));
+                    }
+                  },
+                  child: const Text('Gửi'),
+                ),
               )
             ],
           ),

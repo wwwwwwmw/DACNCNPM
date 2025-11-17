@@ -1,3 +1,4 @@
+// ignore_for_file: use_build_context_synchronously
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../services/api_service.dart';
@@ -96,6 +97,7 @@ class _AdminUsersTabState extends State<AdminUsersTab> {
     });
     if (ok == true && nameCtrl.text.trim().isNotEmpty && emailCtrl.text.trim().isNotEmpty && passCtrl.text.isNotEmpty) {
       try {
+        if (!context.mounted) return;
         await api.adminCreateUser(name: nameCtrl.text.trim(), email: emailCtrl.text.trim(), password: passCtrl.text, role: role, departmentId: dep?.id);
         if (!mounted) return;
         await _fetch(refresh: true); // ensure list fresh
@@ -148,6 +150,7 @@ class _AdminUsersTabState extends State<AdminUsersTab> {
     });
     if (ok == true && nameCtrl.text.trim().isNotEmpty) {
       try {
+        if (!context.mounted) return;
         await api.adminUpdateUser(user.id, name: nameCtrl.text.trim(), role: role, departmentId: dep?.id.isEmpty == true ? null : dep?.id, password: passCtrl.text.isEmpty ? null : passCtrl.text);
         if (!mounted) return;
         await _fetch(refresh: true);
@@ -167,9 +170,7 @@ class _AdminUsersTabState extends State<AdminUsersTab> {
         ElevatedButton(onPressed: () => Navigator.pop(c, true), child: const Text('Xóa')),
       ],
     ));
-    if (ok == true) {
-      try { await api.adminDeleteUser(user.id); await _fetch(refresh: true); } catch (e) { if(mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Xóa thất bại: $e'))); }
-    }
+    if (ok == true) { try { if (!context.mounted) return; await api.adminDeleteUser(user.id); await _fetch(refresh: true); } catch (e) { if(mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Xóa thất bại: $e'))); } }
   }
 
   @override
@@ -178,10 +179,10 @@ class _AdminUsersTabState extends State<AdminUsersTab> {
       children: [
         RefreshIndicator(
           onRefresh: () => _fetch(refresh: true),
-          child: ListView.separated(
+          child: ListView.builder(
             controller: _scrollCtrl,
+            padding: const EdgeInsets.only(bottom: 96, top: 8),
             itemCount: _users.length + 1,
-            separatorBuilder: (_, __) => const Divider(height: 1),
             itemBuilder: (_, i) {
               if (i >= _users.length) {
                 return Padding(
@@ -190,12 +191,23 @@ class _AdminUsersTabState extends State<AdminUsersTab> {
                 );
               }
               final u = _users[i];
-              return ListTile(
-                leading: CircleAvatar(child: Text(u.name.isNotEmpty ? u.name[0].toUpperCase() : '?')),
-                title: Text(u.name),
-                subtitle: Text('${u.email} • ${u.role}'),
-                onTap: () => _showEdit(u),
-                trailing: IconButton(icon: const Icon(Icons.delete, color: Colors.redAccent), onPressed: () => _delete(u)),
+              return Card(
+                child: ListTile(
+                  leading: CircleAvatar(child: Text(u.name.isNotEmpty ? u.name[0].toUpperCase() : '?')),
+                  title: Text(u.name),
+                  subtitle: Text('${u.email} • ${u.role}'),
+                  onTap: () => _showEdit(u),
+                  trailing: PopupMenuButton<String>(
+                    onSelected: (v) {
+                      if (v == 'edit') _showEdit(u);
+                      if (v == 'delete') _delete(u);
+                    },
+                    itemBuilder: (_) => const [
+                      PopupMenuItem(value: 'edit', child: Text('Sửa')),
+                      PopupMenuItem(value: 'delete', child: Text('Xóa')),
+                    ],
+                  ),
+                ),
               );
             },
           ),
@@ -204,6 +216,7 @@ class _AdminUsersTabState extends State<AdminUsersTab> {
           bottom: 16,
           right: 16,
           child: FloatingActionButton(
+            heroTag: 'fab-admin-users',
             onPressed: _showCreate,
             child: const Icon(Icons.add),
           ),

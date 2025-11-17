@@ -1,5 +1,7 @@
+// ignore_for_file: use_build_context_synchronously
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../../models/room.dart';
 import '../reports/event_report_page.dart';
 import '../../services/api_service.dart';
 import '../../models/event.dart';
@@ -12,6 +14,10 @@ class EventsAdminTab extends StatefulWidget {
 
 class _EventsAdminTabState extends State<EventsAdminTab> {
   bool _loading = false;
+  String _mode = 'month'; // 'month' | 'year' | 'range'
+  int _year = DateTime.now().year;
+  int _month = DateTime.now().month;
+  DateTimeRange? _range;
 
   @override
   void initState() {
@@ -25,9 +31,19 @@ class _EventsAdminTabState extends State<EventsAdminTab> {
   }
 
   Future<void> _showCreate() async {
+    final api = context.read<ApiService>();
+    if (api.departments.isEmpty) await api.fetchDepartments();
+    if (api.rooms.isEmpty) await api.fetchRooms();
+    // Users (for selecting participants in work trip)
+    final users = await api.listUsers(limit: 500);
+
     DateTime? start; DateTime? end;
     final titleCtrl = TextEditingController();
     final descCtrl = TextEditingController();
+    String eventType = 'work'; // 'work' | 'meeting'
+    final Set<String> selectedDeptIds = {};
+    final Set<String> selectedParticipantIds = {};
+    String? selectedRoomId;
     Future<void> pickStart() async {
       final date = await showDatePicker(context: context, firstDate: DateTime(2020), lastDate: DateTime(2100), initialDate: DateTime.now());
       if (date == null) return; final time = await showTimePicker(context: context, initialTime: TimeOfDay.now());
@@ -40,6 +56,66 @@ class _EventsAdminTabState extends State<EventsAdminTab> {
       if (time != null) end = DateTime(date.year,date.month,date.day,time.hour,time.minute);
       setState((){});
     }
+    List<RoomModel> availableRooms() {
+      if (start == null || end == null) return api.rooms;
+      return api.rooms.where((r){
+        final overlap = api.events.any((ev) => ev.type == 'meeting' && ev.roomId == r.id && ev.startTime.isBefore(end!) && ev.endTime.isAfter(start!));
+        return !overlap;
+      }).toList();
+    }
+    Future<void> selectDepartments(StateSetter setDialog) async {
+      await showDialog(context: context, builder: (c){
+        return StatefulBuilder(builder: (c, setInner){
+          return AlertDialog(
+            title: const Text('Chọn phòng ban'),
+            content: SizedBox(
+              width: 400,
+              child: ListView(
+                children: api.departments.map((d) => CheckboxListTile(
+                  value: selectedDeptIds.contains(d.id),
+                  title: Text(d.name),
+                  onChanged: (v){
+                    if (v == true) { selectedDeptIds.add(d.id); } else { selectedDeptIds.remove(d.id); }
+                    // Rebuild both inner dialog (to show tick) and outer dialog (to update count)
+                    setInner((){});
+                    setDialog((){});
+                  },
+                )).toList(),
+              )
+            ),
+            actions: [TextButton(onPressed: ()=>Navigator.pop(c), child: const Text('Xong'))],
+          );
+        });
+      });
+      // Ensure outer dialog reflects latest selections after closing
+      setDialog((){});
+    }
+    Future<void> selectParticipants(StateSetter setDialog) async {
+      final filtered = users.where((u) => u.departmentId != null && selectedDeptIds.contains(u.departmentId)).toList();
+      await showDialog(context: context, builder: (c){
+        return StatefulBuilder(builder: (c, setInner){
+          return AlertDialog(
+            title: const Text('Chọn nhân viên'),
+            content: SizedBox(
+              width: 400,
+              child: ListView(
+                children: filtered.map((u) => CheckboxListTile(
+                  value: selectedParticipantIds.contains(u.id),
+                  title: Text('${u.name} (${u.email})'),
+                  onChanged: (v){
+                    if (v == true) { selectedParticipantIds.add(u.id); } else { selectedParticipantIds.remove(u.id); }
+                    setInner((){});
+                    setDialog((){});
+                  },
+                )).toList(),
+              )
+            ),
+            actions: [TextButton(onPressed: ()=>Navigator.pop(c), child: const Text('Xong'))],
+          );
+        });
+      });
+      setDialog((){});
+    }
     final ok = await showDialog<bool>(context: context, builder: (c) => StatefulBuilder(builder: (c,setStateDialog){
       return AlertDialog(
         title: const Text('Tạo lịch'),
@@ -47,8 +123,39 @@ class _EventsAdminTabState extends State<EventsAdminTab> {
           TextField(controller: titleCtrl, decoration: const InputDecoration(labelText: 'Tiêu đề *')),
           TextField(controller: descCtrl, decoration: const InputDecoration(labelText: 'Mô tả')),
           const SizedBox(height:8),
+          Row(children:[
+            const Text('Loại:'), const SizedBox(width:8),
+            DropdownButton<String>(value: eventType, items: const [
+              DropdownMenuItem(value: 'work', child: Text('Lịch công tác')),
+              DropdownMenuItem(value: 'meeting', child: Text('Lịch họp')),
+            ], onChanged: (v){ if (v!=null) { eventType = v; setStateDialog((){}); } }),
+          ]),
+          const SizedBox(height:8),
           Row(children:[Expanded(child: Text(start==null? 'Chọn bắt đầu':'Bắt đầu: ${start!.toLocal()}')), TextButton(onPressed: () async {await pickStart(); setStateDialog((){});}, child: const Text('Chọn'))]),
           Row(children:[Expanded(child: Text(end==null? 'Chọn kết thúc':'Kết thúc: ${end!.toLocal()}')), TextButton(onPressed: () async {await pickEnd(); setStateDialog((){});}, child: const Text('Chọn'))]),
+          const SizedBox(height:8),
+          Row(children:[
+            Expanded(child: Text('Phòng ban đã chọn: ${selectedDeptIds.length}')),
+            TextButton(onPressed: ()=>selectDepartments(setStateDialog), child: const Text('Chọn phòng ban')),
+          ]),
+          if (eventType == 'work') ...[
+            const SizedBox(height:4),
+            Row(children:[
+              Expanded(child: Text('Nhân viên đã chọn: ${selectedParticipantIds.length}')),
+              TextButton(onPressed: selectedDeptIds.isEmpty? null : ()=>selectParticipants(setStateDialog), child: const Text('Chọn nhân viên')),
+            ])
+          ] else ...[
+            const SizedBox(height:4),
+            Row(children:[
+              const Text('Phòng họp:'), const SizedBox(width:8),
+              DropdownButton<String>(
+                value: selectedRoomId,
+                hint: const Text('Chọn phòng'),
+                items: availableRooms().map((r)=>DropdownMenuItem(value: r.id, child: Text(r.name))).toList(),
+                onChanged: (v){ selectedRoomId = v; setStateDialog((){}); },
+              )
+            ])
+          ],
         ])),
         actions: [
           TextButton(onPressed: ()=>Navigator.pop(c,false), child: const Text('Hủy')),
@@ -57,7 +164,26 @@ class _EventsAdminTabState extends State<EventsAdminTab> {
       );
     }));
     if (ok == true && titleCtrl.text.trim().isNotEmpty && start!=null && end!=null) {
-      await context.read<ApiService>().createEvent(title: titleCtrl.text.trim(), description: descCtrl.text.trim().isEmpty? null: descCtrl.text.trim(), start: start, end: end);
+      if (!context.mounted) return;
+      // Validate participants/room
+      if (eventType == 'work' && selectedParticipantIds.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Chọn ít nhất 1 nhân viên cho lịch công tác')));
+        return;
+      }
+      if (eventType == 'meeting' && selectedRoomId == null) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Chọn phòng họp trống')));
+        return;
+      }
+      await context.read<ApiService>().createEvent(
+        title: titleCtrl.text.trim(),
+        description: descCtrl.text.trim().isEmpty? null: descCtrl.text.trim(),
+        start: start,
+        end: end,
+        participantIds: eventType == 'work' ? selectedParticipantIds.toList() : null,
+        roomId: eventType == 'meeting' ? selectedRoomId : null,
+        departmentIds: selectedDeptIds.isNotEmpty ? selectedDeptIds.toList() : null,
+        type: eventType,
+      );
       if (!mounted) return;
     }
   }
@@ -93,6 +219,7 @@ class _EventsAdminTabState extends State<EventsAdminTab> {
       );
     }));
     if (ok == true && titleCtrl.text.trim().isNotEmpty && start!=null && end!=null) {
+      if (!context.mounted) return;
       await context.read<ApiService>().updateEvent(ev.id, title: titleCtrl.text.trim(), description: descCtrl.text.trim().isEmpty? null: descCtrl.text.trim(), start: start, end: end);
       if (!mounted) return;
     }
@@ -104,32 +231,44 @@ class _EventsAdminTabState extends State<EventsAdminTab> {
       content: Text('Bạn có chắc chắn xóa "${ev.title}"?'),
       actions: [TextButton(onPressed: ()=>Navigator.pop(c,false), child: const Text('Hủy')), ElevatedButton(onPressed: ()=>Navigator.pop(c,true), child: const Text('Xóa'))],
     ));
-    if (ok == true) await context.read<ApiService>().deleteEvent(ev.id);
+    if (ok == true) { if (!context.mounted) return; await context.read<ApiService>().deleteEvent(ev.id); }
     if (!mounted) return;
   }
 
   @override
   Widget build(BuildContext context) {
     final service = context.watch<ApiService>();
-    final list = service.events;
+    final list = _filteredEvents(service.events);
     return Stack(children: [
       RefreshIndicator(
         onRefresh: _load,
         child: ListView.builder(
-          padding: const EdgeInsets.only(bottom: 80),
-            itemCount: list.length,
-            itemBuilder: (c,i){
-              final ev = list[i];
-              final startStr = ev.startTime.toLocal().toString();
-              final endStr = ev.endTime.toLocal().toString();
-              return ListTile(
+          padding: const EdgeInsets.only(bottom: 112, top: 8),
+          itemCount: list.length + 1,
+          itemBuilder: (c,i){
+            if (i == 0) {
+              return _buildFilterBar(context);
+            }
+            final ev = list[i-1];
+            final startStr = ev.startTime.toLocal().toString();
+            final endStr = ev.endTime.toLocal().toString();
+            return Card(
+              child: ListTile(
+                leading: const Icon(Icons.event),
                 title: Text(ev.title),
                 subtitle: Text('$startStr → $endStr\nTrạng thái: ${ev.status}'),
                 onTap: ()=>_showEdit(ev),
                 isThreeLine: true,
-                trailing: IconButton(icon: const Icon(Icons.delete, color: Colors.redAccent), onPressed: ()=>_delete(ev)),
-              );
-            }
+                trailing: PopupMenuButton<String>(
+                  onSelected: (v){ if(v=='edit') _showEdit(ev); if(v=='delete') _delete(ev); },
+                  itemBuilder: (_) => const [
+                    PopupMenuItem(value: 'edit', child: Text('Sửa')),
+                    PopupMenuItem(value: 'delete', child: Text('Xóa')),
+                  ],
+                ),
+              ),
+            );
+          }
         ),
       ),
       if(_loading) const Positioned.fill(child: Center(child: CircularProgressIndicator())),
@@ -141,15 +280,132 @@ class _EventsAdminTabState extends State<EventsAdminTab> {
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
             FloatingActionButton.extended(
+              heroTag: 'fab-admin-events-report',
               onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const EventReportPage())),
               icon: const Icon(Icons.insights),
               label: const Text('Báo cáo'),
             ),
             const SizedBox(height: 12),
-            FloatingActionButton(onPressed: _showCreate, child: const Icon(Icons.add)),
+            FloatingActionButton(heroTag: 'fab-admin-events-create', onPressed: _showCreate, child: const Icon(Icons.add)),
           ],
         ),
       ),
     ]);
   }
+
+  Widget _buildFilterBar(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(children: [
+            const Text('Thời gian:'),
+            const SizedBox(width: 8),
+            DropdownButton<String>(
+              value: _mode,
+              items: const [
+                DropdownMenuItem(value: 'month', child: Text('Theo tháng')),
+                DropdownMenuItem(value: 'year', child: Text('Theo năm')),
+                DropdownMenuItem(value: 'range', child: Text('Khoảng thời gian')),
+              ],
+              onChanged: (v) {
+                if (v == null) return;
+                setState(() {
+                  _mode = v;
+                  if (_mode != 'range') _range = null;
+                });
+              },
+            ),
+            const SizedBox(width: 16),
+            const Text('Năm:'),
+            const SizedBox(width: 8),
+            DropdownButton<int>(
+              value: _year,
+              items: [
+                for (var y = DateTime.now().year - 4; y <= DateTime.now().year + 1; y++)
+                  DropdownMenuItem(value: y, child: Text('$y')),
+              ],
+              onChanged: (v) {
+                if (v == null) return;
+                setState(() => _year = v);
+              },
+            ),
+          ]),
+          if (_mode == 'month') ...[
+            const SizedBox(height: 8),
+            Row(children: [
+              const Text('Tháng:'),
+              const SizedBox(width: 8),
+              DropdownButton<int>(
+                value: _month,
+                items: [
+                  for (var m = 1; m <= 12; m++)
+                    DropdownMenuItem(value: m, child: Text('$m')),
+                ],
+                onChanged: (v) {
+                  if (v == null) return;
+                  setState(() => _month = v);
+                },
+              ),
+            ]),
+          ]
+          else if (_mode == 'range') ...[
+            const SizedBox(height: 8),
+            Row(children: [
+              Expanded(
+                child: Text(
+                  _range == null
+                      ? 'Chọn khoảng thời gian'
+                      : '${_fmtDate(_range!.start)} → ${_fmtDate(_range!.end)}',
+                ),
+              ),
+              TextButton(
+                onPressed: () async {
+                  final now = DateTime.now();
+                  final picked = await showDateRangePicker(
+                    context: context,
+                    firstDate: DateTime(now.year - 5),
+                    lastDate: DateTime(now.year + 5),
+                    initialDateRange: _range,
+                  );
+                  if (picked != null) {
+                    setState(() => _range = picked);
+                  }
+                },
+                child: const Text('Chọn'),
+              ),
+            ]),
+          ],
+        ],
+      ),
+    );
+  }
+
+  List<EventModel> _filteredEvents(List<EventModel> events) {
+    if (events.isEmpty) return events;
+
+    DateTimeRange effectiveRange;
+    if (_mode == 'range' && _range != null) {
+      effectiveRange = _range!;
+    } else if (_mode == 'year') {
+      effectiveRange = DateTimeRange(
+        start: DateTime(_year, 1, 1),
+        end: DateTime(_year, 12, 31, 23, 59, 59),
+      );
+    } else {
+      // month mode
+      final start = DateTime(_year, _month, 1);
+      final end = DateTime(_year, _month + 1, 1).subtract(const Duration(seconds: 1));
+      effectiveRange = DateTimeRange(start: start, end: end);
+    }
+
+    bool overlaps(EventModel e) {
+      return !(e.endTime.isBefore(effectiveRange.start) || e.startTime.isAfter(effectiveRange.end));
+    }
+
+    return events.where(overlaps).toList();
+  }
+
+  String _fmtDate(DateTime d) => '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
 }

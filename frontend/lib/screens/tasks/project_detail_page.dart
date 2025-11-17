@@ -1,3 +1,4 @@
+// ignore_for_file: use_build_context_synchronously
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:fl_chart/fl_chart.dart';
@@ -5,6 +6,7 @@ import '../../services/api_service.dart';
 import '../../models/task.dart';
 import 'add_task_page.dart';
 import 'task_detail_page.dart';
+import '../../widgets/task_list_item_card.dart';
 
 class ProjectDetailPage extends StatefulWidget {
   final String projectId;
@@ -88,6 +90,7 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
                   );
                 });
                 if (ok == true) {
+                  if (!context.mounted) return;
                   await context.read<ApiService>().deleteProject(widget.projectId);
                   if (!mounted) return;
                   Navigator.pop(context);
@@ -109,7 +112,11 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
                       child: Padding(
                         padding: const EdgeInsets.all(16.0),
                         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                          const Text('Tổng quan trọng số', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+                          Row(children: const [
+                            Icon(Icons.bar_chart, size: 18),
+                            SizedBox(width: 6),
+                            Text('Tổng quan trọng số', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+                          ]),
                           const SizedBox(height:8),
                           Text('Tổng trọng số nhập: $_explicitSum%'),
                           Text('Tổng trọng số hiệu dụng: $_effectiveTotal%'),
@@ -178,13 +185,13 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
                     const SizedBox(height:16),
                     const Text('Danh sách nhiệm vụ', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
                     const SizedBox(height:8),
-                    ..._tasks.map((t) => Card(
-                      child: ListTile(
-                        title: Text(t.title),
-                        subtitle: Text('Trạng thái: ${t.status.replaceAll('_',' ')}'),
-                        trailing: Text('W ${t.effectiveWeight}%'),
+                    ..._tasks.map((t) => Padding(
+                      padding: const EdgeInsets.only(bottom: 8.0),
+                      child: TaskListItemCard(
+                        task: t,
                         onTap: () async {
                           await Navigator.push(context, MaterialPageRoute(builder: (_) => TaskDetailPage(task: t)));
+                          if (!mounted) return;
                           await _load();
                         },
                       ),
@@ -195,6 +202,7 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
           ? FloatingActionButton(
               onPressed: () async {
                 await Navigator.push(context, MaterialPageRoute(builder: (_) => AddTaskPage(preselectedProjectId: widget.projectId)));
+                if (!mounted) return;
                 await _load();
               },
               child: const Icon(Icons.add_task),

@@ -6,6 +6,7 @@ module.exports = (sequelize, DataTypes) => {
     start_time: { type: DataTypes.DATE, allowNull: false },
     end_time: { type: DataTypes.DATE, allowNull: false },
     status: { type: DataTypes.ENUM('pending','approved','rejected','completed'), allowNull: false, defaultValue: 'pending' },
+    type: { type: DataTypes.ENUM('work','meeting'), allowNull: false, defaultValue: 'work' },
     repeat: { type: DataTypes.STRING, allowNull: true },
     roomId: { type: DataTypes.UUID, allowNull: true },
     createdById: { type: DataTypes.UUID, allowNull: false },

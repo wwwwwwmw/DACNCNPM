@@ -27,7 +27,44 @@ class MyApp extends StatelessWidget {
       ],
       child: MaterialApp(
         title: 'Lịch Công Tác',
-        theme: ThemeData(colorScheme: ColorScheme.fromSeed(seedColor: Colors.indigo)),
+        theme: ThemeData(
+          useMaterial3: true,
+          colorScheme: ColorScheme.fromSeed(seedColor: Colors.indigo, brightness: Brightness.light),
+          cardTheme: CardThemeData(
+            elevation: 1,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+              side: BorderSide(color: Colors.grey[200]!),
+            ),
+            margin: const EdgeInsets.symmetric(vertical: 8.0),
+          ),
+          inputDecorationTheme: InputDecorationTheme(
+            filled: true,
+            fillColor: Colors.grey.shade100,
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+            labelStyle: const TextStyle(color: Colors.black54),
+          ),
+          elevatedButtonTheme: ElevatedButtonThemeData(
+            style: ElevatedButton.styleFrom(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 24),
+              // Use finite min width; explicit full-width buttons will wrap in SizedBox(width: double.infinity)
+              minimumSize: const Size(80, 50),
+            ),
+          ),
+          appBarTheme: const AppBarTheme(
+            elevation: 0,
+            backgroundColor: Colors.white,
+            foregroundColor: Colors.black,
+            centerTitle: true,
+          ),
+          bottomNavigationBarTheme: BottomNavigationBarThemeData(
+            selectedItemColor: Colors.indigo,
+            unselectedItemColor: Colors.grey.shade600,
+            backgroundColor: Colors.white,
+            type: BottomNavigationBarType.fixed,
+          ),
+        ),
         home: initialToken == null ? const LoginPage() : const HomePage(),
       ),
     );

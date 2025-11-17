@@ -5,8 +5,8 @@ const { eventToICS } = require('../../utils/ics');
 
 async function listEvents(req, res) {
   try {
-    // filters: ?from=&to=&status=&roomId=&createdById=&departmentId=&mine&limit=&offset=
-    const { from, to, status, roomId, createdById, departmentId, mine, limit = 200, offset = 0 } = req.query;
+    // filters: ?from=&to=&status=&roomId=&createdById=&departmentId=&type=&mine&limit=&offset=
+    const { from, to, status, roomId, createdById, departmentId, type, mine, limit = 200, offset = 0 } = req.query;
     const where = {};
     if (from || to) {
       where.start_time = {};
@@ -14,13 +14,15 @@ async function listEvents(req, res) {
       if (to) where.start_time[Op.lte] = new Date(to);
     }
     if (status) where.status = status;
+    if (type) where.type = type;
     if (roomId) where.roomId = roomId;
     if (createdById) where.createdById = createdById;
 
     const include = [
       { model: Room },
       { model: User, as: 'createdBy', attributes: ['id','name','email','role','departmentId'], include: [{ model: Department, attributes: ['id','name'] }] },
-      { model: Participant, include: [{ model: User, attributes: ['id','name','email'] }] }
+      { model: Participant, include: [{ model: User, attributes: ['id','name','email'] }] },
+      { model: Department, as: 'extraDepartments', attributes: ['id','name'], through: { attributes: [] } }
     ];
 
     if (departmentId || mine) {
@@ -71,7 +73,7 @@ async function getEvent(req, res) {
 
 async function createEvent(req, res) {
   try {
-    const { title, description, start_time, end_time, roomId, participantIds = [], repeat, departmentId, isGlobal, status: bodyStatus } = req.body;
+    const { title, description, start_time, end_time, roomId, participantIds = [], repeat, departmentId, departmentIds = [], isGlobal, status: bodyStatus, type } = req.body;
     if (!title || !start_time || !end_time) return res.status(400).json({ message: 'Missing required fields' });
     // Authorization & Department scope checks
     if (req.user.role === 'manager' && departmentId && String(departmentId) !== String(req.user.departmentId)) {
@@ -90,6 +92,22 @@ async function createEvent(req, res) {
       // employee must be pending regardless of body
       status = 'pending';
     }
+    // Determine primary department (first of list or provided single)
+    const deptList = Array.isArray(departmentIds) ? departmentIds : [];
+    const primaryDept = departmentId || (deptList.length ? deptList[0] : (isGlobal ? null : req.user.departmentId));
+
+    // Meeting room availability check
+    if (type === 'meeting' && roomId) {
+      const overlap = await Event.findOne({
+        where: {
+          roomId,
+          start_time: { [Op.lt]: new Date(end_time) },
+          end_time: { [Op.gt]: new Date(start_time) }
+        }
+      });
+      if (overlap) return res.status(400).json({ message: 'Room busy for selected time' });
+    }
+
     const event = await Event.create({
       title,
       description,
@@ -98,14 +116,21 @@ async function createEvent(req, res) {
       roomId: roomId || null,
       createdById: req.user.id,
       repeat: repeat || null,
-      departmentId: departmentId || (isGlobal ? null : req.user.departmentId) || null,
+      departmentId: primaryDept || null,
       is_global: !!isGlobal,
       status,
+      type: type === 'meeting' ? 'meeting' : 'work',
     });
     const parts = Array.isArray(participantIds) ? participantIds : [];
     if (parts.length) {
       await Participant.bulkCreate(parts.map(uid => ({ eventId: event.id, userId: uid })));
       await notifyUsers(parts, 'Lịch mới', `Bạn được mời tham dự: ${title}`, { ref_type: 'event', ref_id: event.id });
+    }
+    // Extra departments join rows
+    if (deptList.length > 1) {
+      const { EventDepartment } = require('../../models');
+      const extra = deptList.slice(primaryDept ? 0 : 0); // take all; duplicates prevented by unique index
+      await EventDepartment.bulkCreate(extra.map(did => ({ eventId: event.id, departmentId: did })));
     }
     await notifyUsers(req.user.id, 'Tạo lịch thành công', `Đã tạo: ${title}`, { ref_type: 'event', ref_id: event.id });
 
@@ -119,7 +144,7 @@ async function createEvent(req, res) {
         }
       } catch (_) {}
     }
-    const created = await Event.findByPk(event.id, { include: [Room, { model: User, as: 'createdBy', attributes: ['id','name','email'] }, Participant] });
+    const created = await Event.findByPk(event.id, { include: [Room, { model: User, as: 'createdBy', attributes: ['id','name','email'] }, Participant, { model: Department, as: 'extraDepartments', attributes: ['id','name'], through: { attributes: [] } }] });
     return res.status(201).json(created);
   } catch (e) { return res.status(500).json({ message: e.message }); }
 }

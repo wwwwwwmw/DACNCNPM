@@ -1,3 +1,4 @@
+// ignore_for_file: use_build_context_synchronously
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../services/api_service.dart';
@@ -126,6 +127,7 @@ class _DeptEmployeesTabState extends State<_DeptEmployeesTab> {
               bottom: 16,
               right: 16,
               child: FloatingActionButton(
+                heroTag: 'fab-manager-add-employee',
                 onPressed: () => _openAddEmployee(context),
                 child: const Icon(Icons.person_add_alt_1),
               ),
@@ -194,6 +196,7 @@ class _MeetingsTabState extends State<_MeetingsTab> {
         ),
       ),
       floatingActionButton: FloatingActionButton(
+        heroTag: 'fab-manager-meeting',
         onPressed: () => _openCreateMeeting(context),
         child: const Icon(Icons.add),
       ),
@@ -253,7 +256,7 @@ class _MeetingsTabState extends State<_MeetingsTab> {
                 ],
                 onChanged: (v) => setS(() {
                   selected.remove('__GLOBAL__');
-                  if (v == '__GLOBAL__') selected.add('__GLOBAL__');
+                  if (v == '__GLOBAL__') { selected.add('__GLOBAL__'); }
                 }),
                 decoration: const InputDecoration(labelText: 'Phạm vi họp'),
               ),
@@ -264,7 +267,7 @@ class _MeetingsTabState extends State<_MeetingsTab> {
                 child: ListView(
                   children: deptUsers.map((u) => CheckboxListTile(
                     value: selected.contains(u.id),
-                    onChanged: (v) => setS(() { if (v==true) selected.add(u.id); else selected.remove(u.id); }),
+                    onChanged: (v) => setS(() { if (v==true) { selected.add(u.id); } else { selected.remove(u.id); } }),
                     title: Text(u.name),
                   )).toList(),
                 ),
@@ -276,9 +279,17 @@ class _MeetingsTabState extends State<_MeetingsTab> {
             ElevatedButton(onPressed: () async {
               if (titleCtrl.text.trim().isEmpty || start==null || end==null) { return; }
               final isGlobal = selected.contains('__GLOBAL__');
-              await api.createEvent(title: titleCtrl.text.trim(), start: start, end: end, roomId: roomId, participantIds: selected.where((x)=>x!='__GLOBAL__').toList(), departmentId: isGlobal ? null : me?.departmentId, isGlobal: isGlobal);
-              if (!mounted) return;
-              if (ctx.mounted) Navigator.pop(ctx);
+              await api.createEvent(
+                title: titleCtrl.text.trim(),
+                start: start,
+                end: end,
+                roomId: roomId,
+                participantIds: selected.where((x)=>x!='__GLOBAL__').toList(),
+                departmentIds: isGlobal ? null : (me?.departmentId != null ? [me!.departmentId!] : null),
+                isGlobal: isGlobal,
+                type: 'meeting',
+              );
+              if (!ctx.mounted) return; Navigator.pop(ctx);
             }, child: const Text('Tạo'))
           ],
         );
@@ -333,14 +344,12 @@ class _MeetingsTabState extends State<_MeetingsTab> {
             if (me != null && (me.role=='admin' || me.role=='manager'))
               TextButton(onPressed: () async {
                 await api.deleteEvent(event.id);
-                if (!mounted) return;
-                if (ctx.mounted) Navigator.pop(ctx);
+                if (!ctx.mounted) return; Navigator.pop(ctx);
               }, child: const Text('Xóa', style: TextStyle(color: Colors.red))),
-            ElevatedButton(onPressed: () async {
+              ElevatedButton(onPressed: () async {
               if (titleCtrl.text.trim().isEmpty || start==null || end==null) { return; }
               await api.updateEvent(event.id, title: titleCtrl.text.trim(), start: start, end: end, roomId: roomId);
-              if (!mounted) return;
-              if (ctx.mounted) Navigator.pop(ctx);
+                if (!ctx.mounted) return; Navigator.pop(ctx);
             }, child: const Text('Lưu')),
           ],
         );

@@ -17,14 +17,14 @@ class SystemTab extends StatelessWidget {
           const SizedBox(height: 12),
           ElevatedButton.icon(
             icon: const Icon(Icons.backup_outlined),
-            label: const Text('Sao lưu dữ liệu'),
+            label: const Text('Sao lưu dữ liệu (JSON)'),
             onPressed: () async {
               final api = context.read<ApiService>();
               try {
                 await api.downloadBackup();
                 if (context.mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Đang tải file backup...')),
+                    const SnackBar(content: Text('Đang tải file backup (.json)...')),
                   );
                 }
               } catch (e) {
@@ -33,6 +33,26 @@ class SystemTab extends StatelessWidget {
                     SnackBar(content: Text('Lỗi sao lưu: $e')), 
                   );
                 }
+              }
+            },
+          ),
+          const SizedBox(height: 8),
+          ElevatedButton.icon(
+            icon: const Icon(Icons.restore_outlined),
+            label: const Text('Phục hồi dữ liệu (JSON)') ,
+            onPressed: () async {
+              final api = context.read<ApiService>();
+              try {
+                final result = await api.restoreBackupFromFile();
+                if (!context.mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('Phục hồi xong: ${result ?? 'OK'}')),
+                );
+              } catch (e) {
+                if (!context.mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('Lỗi phục hồi: $e')),
+                );
               }
             },
           ),

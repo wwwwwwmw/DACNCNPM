@@ -1,3 +1,4 @@
+// ignore_for_file: use_build_context_synchronously
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../services/api_service.dart';
@@ -48,6 +49,7 @@ class _DepartmentsTabState extends State<DepartmentsTab> {
       );
     });
     if (ok == true && nameCtrl.text.trim().isNotEmpty) {
+      if (!context.mounted) return;
       await context.read<ApiService>().createDepartment(nameCtrl.text.trim(), description: descCtrl.text.trim().isEmpty ? null : descCtrl.text.trim());
       if (!mounted) return;
     }
@@ -73,6 +75,7 @@ class _DepartmentsTabState extends State<DepartmentsTab> {
       );
     });
     if (ok == true && nameCtrl.text.trim().isNotEmpty) {
+      if (!context.mounted) return;
       await context.read<ApiService>().updateDepartment(dep.id, name: nameCtrl.text.trim(), description: descCtrl.text.trim().isEmpty ? null : descCtrl.text.trim());
       if (!mounted) return;
     }
@@ -88,6 +91,7 @@ class _DepartmentsTabState extends State<DepartmentsTab> {
       ],
     ));
     if (ok == true) {
+      if (!context.mounted) return;
       await context.read<ApiService>().deleteDepartment(dep.id);
       if (!mounted) return;
     }
@@ -102,15 +106,27 @@ class _DepartmentsTabState extends State<DepartmentsTab> {
         RefreshIndicator(
           onRefresh: _load,
           child: ListView.builder(
-            padding: const EdgeInsets.only(bottom: 80),
+            padding: const EdgeInsets.only(bottom: 96, top: 8),
             itemCount: list.length,
             itemBuilder: (c, i) {
               final dep = list[i];
-              return ListTile(
-                title: Text(dep.name),
-                subtitle: dep.description == null ? null : Text(dep.description!),
-                onTap: () => _showEdit(dep),
-                trailing: IconButton(icon: const Icon(Icons.delete, color: Colors.redAccent), onPressed: () => _delete(dep)),
+              return Card(
+                child: ListTile(
+                  leading: const Icon(Icons.apartment),
+                  title: Text(dep.name),
+                  subtitle: dep.description == null ? null : Text(dep.description!),
+                  onTap: () => _showEdit(dep),
+                  trailing: PopupMenuButton<String>(
+                    onSelected: (v) {
+                      if (v == 'edit') _showEdit(dep);
+                      if (v == 'delete') _delete(dep);
+                    },
+                    itemBuilder: (_) => const [
+                      PopupMenuItem(value: 'edit', child: Text('Sửa')),
+                      PopupMenuItem(value: 'delete', child: Text('Xóa')),
+                    ],
+                  ),
+                ),
               );
             },
           ),
@@ -120,6 +136,7 @@ class _DepartmentsTabState extends State<DepartmentsTab> {
           bottom: 16,
           right: 16,
           child: FloatingActionButton(
+            heroTag: 'fab-admin-departments',
             onPressed: _showCreate,
             child: const Icon(Icons.add),
           ),

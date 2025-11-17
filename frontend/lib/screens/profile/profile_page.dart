@@ -32,14 +32,14 @@ class _ProfilePageState extends State<ProfilePage> {
         Center(
           child: Column(children: [
             CircleAvatar(
-              radius: 50,
+              radius: 40,
               backgroundColor: cs.primaryContainer,
               backgroundImage: _avatarImageProvider(u?.avatarUrl),
-              child: u?.avatarUrl == null ? Icon(Icons.person, size: 50, color: cs.primary) : null,
+              child: u?.avatarUrl == null ? Icon(Icons.person, size: 40, color: cs.primary) : null,
             ),
             const SizedBox(height: 12),
-            Text(u?.name ?? '', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-            Text(u?.email ?? '', style: const TextStyle(color: Colors.grey)),
+            Text(u?.name ?? '', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+            Text(u?.email ?? '', style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.grey)),
           ]),
         ),
         const SizedBox(height: 24),
@@ -61,29 +61,33 @@ class _ProfilePageState extends State<ProfilePage> {
           color: cs.secondary,
         ),
         const SizedBox(height: 24),
-        ElevatedButton.icon(
-          onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const EditProfilePage())),
-          icon: const Icon(Icons.edit),
-          label: const Text('Chỉnh sửa Hồ sơ'),
+        Card(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          child: Column(children: [
+            ListTile(leading: const Icon(Icons.edit), title: const Text('Chỉnh sửa Hồ sơ'), onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const EditProfilePage()))),
+            const Divider(height: 1),
+            ListTile(leading: const Icon(Icons.pie_chart), title: const Text('Trạng thái Nhiệm vụ'), onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const TaskStatusPage()))),
+          ]),
         ),
         const SizedBox(height: 12),
-        OutlinedButton.icon(
-          onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const TaskStatusPage())),
-          icon: const Icon(Icons.pie_chart),
-          label: const Text('Trạng thái Nhiệm vụ'),
-        ),
-        const SizedBox(height: 12),
-        TextButton.icon(
-          style: TextButton.styleFrom(backgroundColor: cs.errorContainer, foregroundColor: cs.onErrorContainer),
-          onPressed: () {
-            api.logout();
-            Navigator.of(context).pushAndRemoveUntil(
-              MaterialPageRoute(builder: (_) => const LoginPage()),
-              (route) => false,
-            );
-          },
-          icon: const Icon(Icons.logout),
-          label: const Text('Đăng xuất'),
+        SizedBox(
+          width: double.infinity,
+          child: OutlinedButton.icon(
+            style: OutlinedButton.styleFrom(
+              foregroundColor: cs.onErrorContainer,
+              backgroundColor: cs.errorContainer,
+              padding: const EdgeInsets.symmetric(vertical: 12),
+            ),
+            onPressed: () {
+              api.logout();
+              Navigator.of(context).pushAndRemoveUntil(
+                MaterialPageRoute(builder: (_) => const LoginPage()),
+                (route) => false,
+              );
+            },
+            icon: const Icon(Icons.logout),
+            label: const Text('Đăng xuất'),
+          ),
         ),
       ]),
     );

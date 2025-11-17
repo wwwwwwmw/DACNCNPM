@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const auth = require('../../middleware/auth.middleware');
+const maybeAuth = require('../../middleware/maybe_auth.middleware');
 const { listEvents, getEvent, createEvent, updateEvent, deleteEvent, downloadICS } = require('./event.controller');
 const { query, body } = require('express-validator');
 const { validate } = require('../../middleware/validate.middleware');
@@ -11,7 +12,8 @@ const { validate } = require('../../middleware/validate.middleware');
  *   description: Quản lý lịch công tác
  */
 
-router.get('/', listEvents);
+// Populate req.user if token is present; otherwise treat as public access
+router.get('/', maybeAuth, listEvents);
 router.get('/:id', getEvent);
 router.get('/:id/ics', downloadICS);
 

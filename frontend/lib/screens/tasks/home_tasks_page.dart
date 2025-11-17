@@ -3,7 +3,7 @@ import 'package:frontend/models/project.dart';
 import 'package:provider/provider.dart';
 import 'package:percent_indicator/percent_indicator.dart';
 import '../../services/api_service.dart';
-import '../../models/task.dart';
+import '../../widgets/task_list_item_card.dart';
 import 'task_detail_page.dart';
 import 'add_task_page.dart';
 import 'projects_page.dart';
@@ -46,11 +46,7 @@ class _HomeTasksPageState extends State<HomeTasksPage> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text(_greeting(), style: const TextStyle(fontSize: 14, color: Colors.grey)),
-                  const SizedBox(height:4),
-                  Text('Hãy cùng tạo thói quen\nnhé 🙌', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold))
-                ]),
+                Text(_greeting(), style: Theme.of(context).textTheme.headlineMedium),
                 IconButton(onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const TaskStatusPage())), icon: const Icon(Icons.pie_chart_outline))
               ],
             ),
@@ -72,9 +68,9 @@ class _HomeTasksPageState extends State<HomeTasksPage> {
             const Text('Đang thực hiện', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
             const SizedBox(height: 12),
             ...tasks
-                .where((t) => t.status != 'completed')
-                .where((t) => _search.isEmpty || t.title.toLowerCase().contains(_search.toLowerCase()))
-                .map((t) => _TaskItem(task: t)),
+              .where((t) => t.status != 'completed')
+              .where((t) => _search.isEmpty || t.title.toLowerCase().contains(_search.toLowerCase()))
+              .map((t) => TaskListItemCard(task: t, onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => TaskDetailPage(task: t))))),
             if (tasks.isEmpty) const Center(child: Padding(padding: EdgeInsets.all(32), child: Text('Chưa có task'))),
           ],
         ),
@@ -151,67 +147,7 @@ class _StatDot extends StatelessWidget {
   }
 }
 
-class _TaskItem extends StatelessWidget {
-  final TaskModel task;
-  const _TaskItem({required this.task});
-  @override
-  Widget build(BuildContext context) {
-    final acceptedCount = task.assignments.where((a) => a.status == 'accepted' || a.status == 'completed').length;
-    final isFull = acceptedCount >= task.capacity;
-    // Compute completion percent: if completed -> 100; else average of assignment progresses
-    double pct;
-    if (task.status == 'completed') {
-      pct = 1.0;
-    } else if (task.assignments.isEmpty) {
-      pct = 0.0;
-    } else {
-      final progresses = task.assignments.map((a) => a.progress).toList();
-      final avg = progresses.reduce((a,b) => a + b) / progresses.length;
-      pct = (avg / 100.0).clamp(0.0, 1.0);
-    }
-    return GestureDetector(
-      onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => TaskDetailPage(task: task))),
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 12),
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(color: Theme.of(context).cardColor, borderRadius: BorderRadius.circular(18)),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(task.title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
-          if (task.description != null) Text(task.description!, maxLines:2, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.grey)),
-          const SizedBox(height: 6),
-          Row(children: [
-            Chip(label: Text(task.assignmentType)),
-            const SizedBox(width: 8),
-            Chip(label: Text('$acceptedCount/${task.capacity}')),
-            const SizedBox(width: 8),
-            Chip(label: Text('W ${task.effectiveWeight}%')),
-            if (isFull) ...[
-              const SizedBox(width: 8),
-              Chip(label: const Text('Đủ người'), backgroundColor: Color(0xFFE8F5E9)),
-            ]
-          ]),
-          const SizedBox(height: 8),
-          // Progress bar
-          LinearPercentIndicator(
-            lineHeight: 8,
-            percent: pct,
-            backgroundColor: Colors.grey.shade200,
-            progressColor: Theme.of(context).colorScheme.primary,
-            barRadius: const Radius.circular(6),
-          ),
-          const SizedBox(height: 4),
-          Text('Hoàn thành ${(pct*100).round()}%', style: const TextStyle(fontSize: 11, color: Colors.black54)),
-          const SizedBox(height: 8),
-          Row(children: [
-            Icon(task.status=='completed'?Icons.check_circle:Icons.play_circle_fill, color: Theme.of(context).colorScheme.primary),
-            const SizedBox(width: 6),
-            Text(task.status.replaceAll('_',' ').toUpperCase(), style: const TextStyle(fontSize: 12,color: Colors.black54)),
-          ])
-        ]),
-      ),
-    );
-  }
-}
+// _TaskItem removed in favor of reusable TaskListItemCard
 
 class _FilterBar extends StatelessWidget {
   final List<ProjectModel> projects;
@@ -226,7 +162,7 @@ class _FilterBar extends StatelessWidget {
       Row(children: [
         Expanded(
           child: DropdownButtonFormField<String>(
-            value: selectedProjectId,
+            initialValue: selectedProjectId,
             items: [
               const DropdownMenuItem(value: null, child: Text('Tất cả dự án')),
               ...projects.map((p) => DropdownMenuItem(value: p.id, child: Text(p.name)))

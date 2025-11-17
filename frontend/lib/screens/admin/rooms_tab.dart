@@ -1,3 +1,4 @@
+// ignore_for_file: use_build_context_synchronously
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../services/api_service.dart';
@@ -41,6 +42,7 @@ class _RoomsTabState extends State<RoomsTab> {
     ));
     if (ok == true && nameCtrl.text.trim().isNotEmpty) {
       final cap = int.tryParse(capCtrl.text.trim());
+      if (!context.mounted) return;
       await context.read<ApiService>().createRoom(nameCtrl.text.trim(), location: locCtrl.text.trim().isEmpty ? null : locCtrl.text.trim(), capacity: cap);
       if (!mounted) return;
     }
@@ -64,6 +66,7 @@ class _RoomsTabState extends State<RoomsTab> {
     ));
     if (ok == true && nameCtrl.text.trim().isNotEmpty) {
       final cap = int.tryParse(capCtrl.text.trim());
+      if (!context.mounted) return;
       await context.read<ApiService>().updateRoom(room.id, name: nameCtrl.text.trim(), location: locCtrl.text.trim().isEmpty ? null : locCtrl.text.trim(), capacity: cap);
       if (!mounted) return;
     }
@@ -79,6 +82,7 @@ class _RoomsTabState extends State<RoomsTab> {
       ],
     ));
     if (ok == true) {
+      if (!context.mounted) return;
       await context.read<ApiService>().deleteRoom(room.id);
       if (!mounted) return;
     }
@@ -92,15 +96,27 @@ class _RoomsTabState extends State<RoomsTab> {
       RefreshIndicator(
         onRefresh: _load,
         child: ListView.builder(
-          padding: const EdgeInsets.only(bottom: 80),
+          padding: const EdgeInsets.only(bottom: 96, top: 8),
           itemCount: list.length,
           itemBuilder: (c,i){
             final room = list[i];
-            return ListTile(
-              title: Text(room.name),
-              subtitle: Text([if(room.location!=null) room.location!, if(room.capacity!=null) 'Sức chứa: ${room.capacity}'].join(' • ')),
-              onTap: () => _showEdit(room),
-              trailing: IconButton(icon: const Icon(Icons.delete, color: Colors.redAccent), onPressed: () => _delete(room)),
+            return Card(
+              child: ListTile(
+                leading: const Icon(Icons.meeting_room),
+                title: Text(room.name),
+                subtitle: Text([
+                  if(room.location!=null) room.location!,
+                  if(room.capacity!=null) 'Sức chứa: ${room.capacity}'
+                ].join(' • ')),
+                onTap: () => _showEdit(room),
+                trailing: PopupMenuButton<String>(
+                  onSelected: (v){ if (v=='edit') _showEdit(room); if (v=='delete') _delete(room); },
+                  itemBuilder: (_) => const [
+                    PopupMenuItem(value: 'edit', child: Text('Sửa')),
+                    PopupMenuItem(value: 'delete', child: Text('Xóa')),
+                  ],
+                ),
+              ),
             );
           },
         ),
@@ -109,7 +125,7 @@ class _RoomsTabState extends State<RoomsTab> {
       Positioned(
         bottom: 16,
         right: 16,
-        child: FloatingActionButton(onPressed: _showCreate, child: const Icon(Icons.add)),
+        child: FloatingActionButton(heroTag: 'fab-admin-rooms', onPressed: _showCreate, child: const Icon(Icons.add)),
       )
     ]);
   }

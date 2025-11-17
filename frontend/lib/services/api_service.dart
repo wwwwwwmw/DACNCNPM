@@ -1,4 +1,6 @@
+// ignore_for_file: deprecated_member_use
 import 'package:dio/dio.dart';
+import 'package:http_parser/http_parser.dart';
 import 'package:flutter/foundation.dart';
 // ignore: avoid_web_libraries_in_flutter
 import 'dart:html' as html;
@@ -81,15 +83,16 @@ class ApiService extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<EventModel> createEvent({required String title, DateTime? start, DateTime? end, String? description, String? roomId, List<String>? participantIds, String? departmentId, bool isGlobal = false}) async {
+  Future<EventModel> createEvent({required String title, DateTime? start, DateTime? end, String? description, String? roomId, List<String>? participantIds, List<String>? departmentIds, bool isGlobal = false, String type = 'work'}) async {
     final res = await _dio.post('/api/events', data: {
       'title': title,
+      'type': type,
       if (description != null) 'description': description,
       if (start != null) 'start_time': start.toIso8601String(),
       if (end != null) 'end_time': end.toIso8601String(),
       if (roomId != null) 'roomId': roomId,
       if (participantIds != null) 'participantIds': participantIds,
-      if (departmentId != null) 'departmentId': departmentId,
+      if (departmentIds != null) 'departmentIds': departmentIds,
       if (isGlobal) 'isGlobal': true,
     });
     final ev = EventModel.fromJson(res.data);
@@ -359,9 +362,14 @@ class ApiService extends ChangeNotifier {
   }
 
   // ============== Reports ==============
-  Future<void> fetchReportEventsByMonth({int? year}) async {
+  Future<void> fetchReportEventsByMonth({int? year, String? status, String? type, String? departmentId, DateTime? from, DateTime? to}) async {
     final res = await _dio.get('/api/reports/eventsByMonth', queryParameters: {
       if (year != null) 'year': year,
+      if (status != null && status.isNotEmpty) 'status': status,
+      if (type != null && type.isNotEmpty) 'type': type,
+      if (departmentId != null && departmentId.isNotEmpty) 'departmentId': departmentId,
+      if (from != null) 'from': from.toIso8601String(),
+      if (to != null) 'to': to.toIso8601String(),
     });
     final list = (res.data as List).map<Map<String, dynamic>>((e) => {
       'month': (e['month'] is int) ? e['month'] : int.tryParse('${e['month']}') ?? 0,
@@ -371,8 +379,13 @@ class ApiService extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> fetchReportEventsByDepartment() async {
-    final res = await _dio.get('/api/reports/eventsByDepartment');
+  Future<void> fetchReportEventsByDepartment({String? status, String? type, DateTime? from, DateTime? to}) async {
+    final res = await _dio.get('/api/reports/eventsByDepartment', queryParameters: {
+      if (status != null && status.isNotEmpty) 'status': status,
+      if (type != null && type.isNotEmpty) 'type': type,
+      if (from != null) 'from': from.toIso8601String(),
+      if (to != null) 'to': to.toIso8601String(),
+    });
     final list = (res.data as List).map<Map<String, dynamic>>((e) => {
       'department': e['department']?.toString() ?? 'Khác',
       'count': (e['count'] is int) ? e['count'] : int.tryParse('${e['count']}') ?? 0,
@@ -500,13 +513,19 @@ class ApiService extends ChangeNotifier {
       final res = await _dio.get<List<int>>(endpoint, options: Options(responseType: ResponseType.bytes));
       final bytes = res.data;
       if (bytes == null) throw Exception('No data');
-      String filename = 'backup.sql';
+      // Default to JSON filename; adjust if server provides a different name
+      String filename = 'backup.json';
       final cd = res.headers.map['content-disposition']?.join(';') ?? '';
       final match = RegExp(r'filename\*=UTF-8\''"?([^";]+)"?|filename="?([^";]+)"?').firstMatch(cd);
       if (match != null) {
         filename = match.group(1) ?? match.group(2) ?? filename;
       }
-      final blob = html.Blob([bytes], 'application/sql');
+      final ct = res.headers.map['content-type']?.join(';') ?? 'application/octet-stream';
+      // If server didn't provide name but content-type is JSON, keep .json
+      if (!filename.toLowerCase().endsWith('.json') && ct.contains('application/json')) {
+        filename = 'backup.json';
+      }
+      final blob = html.Blob([bytes], ct);
       final url = html.Url.createObjectUrlFromBlob(blob);
       final anchor = html.AnchorElement(href: url)..download = filename;
       html.document.body?.append(anchor);
@@ -520,12 +539,61 @@ class ApiService extends ChangeNotifier {
     }
   }
 
+  // Web-only helper: pick a JSON file and POST to restore endpoint
+  Future<String?> restoreBackupFromFile() async {
+    if (!kIsWeb) {
+      throw Exception('Phục hồi hiện chỉ hỗ trợ trên Web');
+    }
+    final input = html.FileUploadInputElement();
+    // JSON-only to avoid uploading legacy .sql by mistake
+    input.accept = '.json,application/json';
+    input.click();
+    await input.onChange.first;
+    if (input.files == null || input.files!.isEmpty) return 'No file selected';
+    final file = input.files!.first;
+    final reader = html.FileReader();
+    reader.readAsArrayBuffer(file);
+    await reader.onLoad.first;
+    final bytes = reader.result as List<int>?;
+    if (bytes == null) throw Exception('Không đọc được file');
+
+    // Choose content-type based on extension
+    final lower = (file.name).toLowerCase();
+    final isSql = lower.endsWith('.sql');
+    if (isSql) {
+      throw Exception('Vui lòng chọn file JSON (.json) để phục hồi một phần dữ liệu');
+    }
+    final mt = MediaType('application','json');
+    final form = FormData.fromMap({
+      'file': MultipartFile.fromBytes(bytes, filename: file.name, contentType: mt),
+    });
+    try {
+      final res = await _dio.post('/api/backup/restore', data: form);
+      return res.data is String ? res.data as String : null;
+    } on DioException catch (e) {
+      final data = e.response?.data;
+      String msg = e.message ?? 'Restore failed';
+      if (data is Map<String, dynamic>) {
+        final m = (data['message']?.toString() ?? '').trim();
+        final er = (data['error']?.toString() ?? '').trim();
+        if (m.isNotEmpty && er.isNotEmpty) msg = '$m: $er';
+        else if (m.isNotEmpty) msg = m;
+      } else if (data is String && data.isNotEmpty) {
+        msg = data;
+      }
+      throw Exception(msg);
+    }
+  }
+
   // ===== Reports export (CSV) =====
-  Future<void> exportEventsCSV({DateTime? from, DateTime? to}) async {
+  Future<void> exportEventsCSV({DateTime? from, DateTime? to, String? status, String? type, String? departmentId}) async {
     // Build URL with optional from/to and token (for url_launcher without headers)
     final params = <String, String>{};
     if (from != null) params['from'] = from.toIso8601String();
     if (to != null) params['to'] = to.toIso8601String();
+    if (status != null && status.isNotEmpty) params['status'] = status;
+    if (type != null && type.isNotEmpty) params['type'] = type;
+    if (departmentId != null && departmentId.isNotEmpty) params['departmentId'] = departmentId;
     if (_token != null) params['token'] = _token!;
     final qs = params.entries.map((e) => '${Uri.encodeQueryComponent(e.key)}=${Uri.encodeQueryComponent(e.value)}').join('&');
     final url = '${_dio.options.baseUrl}/api/reports/export/events${qs.isNotEmpty ? '?$qs' : ''}';

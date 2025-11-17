@@ -13,6 +13,10 @@ class EventReportPage extends StatefulWidget {
 class _EventReportPageState extends State<EventReportPage> {
   bool _loading = true;
   int _year = DateTime.now().year;
+  String _status = ''; // all
+  String _type = '';   // all
+  String? _departmentId; // all
+  DateTimeRange? _range; // optional override of year
 
   @override
   void initState() {
@@ -24,8 +28,21 @@ class _EventReportPageState extends State<EventReportPage> {
     setState(() => _loading = true);
     try {
       final api = context.read<ApiService>();
-      await api.fetchReportEventsByMonth(year: _year);
-      await api.fetchReportEventsByDepartment();
+      await api.fetchDepartments();
+      await api.fetchReportEventsByMonth(
+        year: _range == null ? _year : null,
+        from: _range?.start,
+        to: _range?.end,
+        status: _status.isEmpty ? null : _status,
+        type: _type.isEmpty ? null : _type,
+        departmentId: _departmentId,
+      );
+      await api.fetchReportEventsByDepartment(
+        from: _range?.start,
+        to: _range?.end,
+        status: _status.isEmpty ? null : _status,
+        type: _type.isEmpty ? null : _type,
+      );
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -81,11 +98,17 @@ class _EventReportPageState extends State<EventReportPage> {
     });
   }
 
+  String _fmtRange(DateTimeRange r) {
+    String fmt(DateTime d) => '${d.year}-${d.month.toString().padLeft(2,'0')}-${d.day.toString().padLeft(2,'0')}';
+    return '${fmt(r.start)} → ${fmt(r.end)}';
+  }
+
   @override
   Widget build(BuildContext context) {
     final api = context.watch<ApiService>();
     final byMonth = api.reportEventsByMonth;
     final byDept = api.reportEventsByDepartment;
+    final departments = api.departments;
 
     return Scaffold(
       appBar: AppBar(
@@ -101,31 +124,102 @@ class _EventReportPageState extends State<EventReportPage> {
               child: ListView(
                 padding: const EdgeInsets.all(16),
                 children: [
-                  Row(
-                    children: [
-                      const Text('Năm:'),
-                      const SizedBox(width: 8),
+                  Wrap(spacing: 12, runSpacing: 8, crossAxisAlignment: WrapCrossAlignment.center, children: [
+                    Row(mainAxisSize: MainAxisSize.min, children: [
+                      const Text('Chế độ:'), const SizedBox(width: 8),
+                      DropdownButton<String>(
+                        value: _range == null ? 'year' : 'range',
+                        items: const [
+                          DropdownMenuItem(value: 'year', child: Text('Theo năm')),
+                          DropdownMenuItem(value: 'range', child: Text('Khoảng thời gian')),
+                        ],
+                        onChanged: (v) async {
+                          if (v == null) return;
+                          setState(() {
+                            if (v == 'year') { _range = null; }
+                            else { _range ??= DateTimeRange(start: DateTime(_year,1,1), end: DateTime(_year,12,31,23,59,59)); }
+                          });
+                          await _load();
+                        },
+                      )
+                    ]),
+                    if (_range == null) Row(mainAxisSize: MainAxisSize.min, children: [
+                      const Text('Năm:'), const SizedBox(width: 8),
                       DropdownButton<int>(
                         value: _year,
                         items: [for (var y = DateTime.now().year - 4; y <= DateTime.now().year + 1; y++) DropdownMenuItem(value: y, child: Text('$y'))],
-                        onChanged: (v) async {
-                          if (v == null) return;
-                          setState(() => _year = v);
-                          await _load();
-                        },
-                      ),
-                      const Spacer(),
-                      ElevatedButton.icon(
-                        onPressed: () async {
-                          final from = DateTime(_year, 1, 1);
-                          final to = DateTime(_year, 12, 31, 23, 59, 59);
-                          await context.read<ApiService>().exportEventsCSV(from: from, to: to);
-                        },
-                        icon: const Icon(Icons.download),
-                        label: const Text('Xuất file CSV'),
+                        onChanged: (v) async { if (v == null) return; setState(() => _year = v); await _load(); },
                       )
-                    ],
-                  ),
+                    ])
+                    else Row(mainAxisSize: MainAxisSize.min, children: [
+                      Text(_range == null ? 'Chọn khoảng thời gian' : _fmtRange(_range!)), const SizedBox(width: 8),
+                      TextButton(
+                        onPressed: () async {
+                          final now = DateTime.now();
+                          final picked = await showDateRangePicker(
+                            context: context,
+                            firstDate: DateTime(now.year - 5),
+                            lastDate: DateTime(now.year + 5),
+                            initialDateRange: _range,
+                          );
+                          if (picked != null) { setState(() => _range = picked); await _load(); }
+                        },
+                        child: const Text('Chọn'),
+                      )
+                    ]),
+                    Row(mainAxisSize: MainAxisSize.min, children: [
+                      const Text('Trạng thái:'), const SizedBox(width: 8),
+                      DropdownButton<String>(
+                        value: _status,
+                        items: const [
+                          DropdownMenuItem(value: '', child: Text('Tất cả')),
+                          DropdownMenuItem(value: 'pending', child: Text('pending')),
+                          DropdownMenuItem(value: 'approved', child: Text('approved')),
+                          DropdownMenuItem(value: 'rejected', child: Text('rejected')),
+                          DropdownMenuItem(value: 'completed', child: Text('completed')),
+                        ],
+                        onChanged: (v) async { setState(()=>_status = v ?? ''); await _load(); },
+                      ),
+                    ]),
+                    Row(mainAxisSize: MainAxisSize.min, children: [
+                      const Text('Loại:'), const SizedBox(width: 8),
+                      DropdownButton<String>(
+                        value: _type,
+                        items: const [
+                          DropdownMenuItem(value: '', child: Text('Tất cả')),
+                          DropdownMenuItem(value: 'work', child: Text('Lịch công tác')),
+                          DropdownMenuItem(value: 'meeting', child: Text('Lịch họp')),
+                        ],
+                        onChanged: (v) async { setState(()=>_type = v ?? ''); await _load(); },
+                      ),
+                    ]),
+                    Row(mainAxisSize: MainAxisSize.min, children: [
+                      const Text('Phòng ban:'), const SizedBox(width: 8),
+                      DropdownButton<String?>(
+                        value: _departmentId,
+                        items: [
+                          const DropdownMenuItem(value: null, child: Text('Tất cả')),
+                          for (final d in departments) DropdownMenuItem(value: d.id, child: Text(d.name)),
+                        ],
+                        onChanged: (v) async { setState(()=>_departmentId = v); await _load(); },
+                      ),
+                    ]),
+                    ElevatedButton.icon(
+                      onPressed: () async {
+                        final from = _range?.start ?? DateTime(_year, 1, 1);
+                        final to = _range?.end ?? DateTime(_year, 12, 31, 23, 59, 59);
+                        await context.read<ApiService>().exportEventsCSV(
+                          from: from,
+                          to: to,
+                          status: _status.isEmpty? null : _status,
+                          type: _type.isEmpty? null : _type,
+                          departmentId: _departmentId,
+                        );
+                      },
+                      icon: const Icon(Icons.download),
+                      label: const Text('Xuất file CSV'),
+                    )
+                  ]),
                   const SizedBox(height: 12),
                   Card(
                     elevation: 0,

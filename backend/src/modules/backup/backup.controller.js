@@ -5,19 +5,76 @@ const path = require('path');
 const { sequelize, Department, User, Room, Event, Participant, Notification, Project, Task, Label, TaskLabel, TaskAssignment, TaskComment, EventDepartment } = require('../../models');
 
 function timestampName() {
-  const d = new Date();
-  const pad = (n) => String(n).padStart(2, '0');
-  const name = `backup-${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}.json`;
-  return name;
+  // Windows-safe (no colons) timestamped custom-format dump filename
+  return `backup-${new Date().toISOString().replace(/[:.]/g, '-')}.backup`;
+}
+
+function resolveBinary(envName, fallbackCmd, windowsCandidates = []) {
+  const v = process.env[envName];
+  if (v && String(v).trim() !== '') {
+    // Trust explicit env var value; let spawn fail if wrong
+    return String(v).trim();
+  }
+  if (process.platform === 'win32') {
+    for (const p of windowsCandidates) {
+      try { if (fs.existsSync(p)) return p; } catch(_) {}
+    }
+  }
+  return fallbackCmd;
 }
 
 async function createBackup(req, res) {
-  // Always produce JSON backup so it can be used for partial restore
-  try {
-    await jsonBackup(res);
-  } catch (e) {
-    return res.status(500).json({ message: e.message });
+  // Produce a PostgreSQL custom format dump (.backup) using pg_dump -F c
+  const { PGHOST, PGUSER, PGPASSWORD, PGDATABASE, PGPORT } = process.env;
+  if (!PGDATABASE) {
+    return res.status(500).json({ message: 'PGDATABASE env variable is required for backup' });
   }
+
+  const fileName = timestampName();
+  const dir = path.join(os.tmpdir(), 'pg_backups');
+  try { fs.mkdirSync(dir, { recursive: true }); } catch (_) {}
+  const filePath = path.join(dir, fileName);
+
+  const args = [];
+  if (PGHOST) args.push('-h', PGHOST);
+  if (PGPORT) args.push('-p', PGPORT);
+  if (PGUSER) args.push('-U', PGUSER);
+  // Custom format (-F c) written to file (-f)
+  args.push('-F', 'c', '-f', filePath, PGDATABASE);
+
+  const bin = resolveBinary('PGDUMP_PATH', 'pg_dump', [
+    'C\\\\Program Files\\\\PostgreSQL\\\\17\\\\bin\\\\pg_dump.exe',
+    'C\\\\Program Files\\\\PostgreSQL\\\\16\\\\bin\\\\pg_dump.exe',
+    'C\\\\Program Files\\\\PostgreSQL\\\\15\\\\bin\\\\pg_dump.exe',
+  ]);
+  let responded = false;
+  const safeSend = (status, payload) => {
+    if (responded || res.headersSent || res.writableEnded) return;
+    responded = true;
+    res.status(status).json(payload);
+  };
+
+  const child = spawn(bin, args, { env: { ...process.env, PGPASSWORD }, stdio: ['ignore', 'pipe', 'pipe'] });
+  let stderr = '';
+  child.stderr.on('data', d => { stderr += d.toString(); });
+  child.once('error', err => {
+    safeSend(500, { message: `Failed to start pg_dump (${bin}). Set PGDUMP_PATH or install PostgreSQL client tools.`, error: err.message });
+  });
+  child.once('close', code => {
+    if (code !== 0) {
+      return safeSend(500, { message: `pg_dump exited with code ${code}`, error: stderr.trim() });
+    }
+    // Stream file to client then delete temporary copy
+    responded = true; // we'll respond via download
+    res.setHeader('Content-Type', 'application/octet-stream');
+    res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+    const stream = fs.createReadStream(filePath);
+    stream.on('error', err => {
+      safeSend(500, { message: 'Failed to read backup file', error: err.message });
+    });
+    stream.on('close', () => { try { fs.unlinkSync(filePath); } catch(_) {} });
+    stream.pipe(res);
+  });
 }
 
 async function jsonBackup(res) {
@@ -52,110 +109,65 @@ async function jsonBackup(res) {
 }
 
 async function restoreBackup(req, res) {
-  let t; // transaction (if JSON path)
+  // Full overwrite restore from PostgreSQL custom format (.backup) using pg_restore --clean
   try {
-    if (!req.file || !req.file.buffer) {
+    if (!req.file) {
       return res.status(400).json({ message: 'No backup file uploaded' });
     }
-    const name = (req.file.originalname || '').toLowerCase();
-    const buf = req.file.buffer;
-    const textHead = buf.subarray(0, Math.min(buf.length, 2048)).toString('utf8');
-    const isSql = name.endsWith('.sql') || /CREATE\s+TABLE|INSERT\s+INTO|SET\s+search_path/i.test(textHead);
-
-    // If .sql → import via psql
-    if (isSql) {
-      const { PGHOST, PGUSER, PGPASSWORD, PGDATABASE, PGPORT } = process.env;
-      if (!PGHOST || !PGUSER || !PGPASSWORD || !PGDATABASE) {
-        return res.status(500).json({ message: 'Missing database env vars (PGHOST, PGUSER, PGPASSWORD, PGDATABASE)' });
-      }
-      const tmpPath = path.join(os.tmpdir(), `restore-${Date.now()}.sql`);
-      fs.writeFileSync(tmpPath, buf);
-      const args = [];
-      if (PGHOST) { args.push('-h', PGHOST); }
-      if (PGPORT) { args.push('-p', PGPORT); }
-      if (PGUSER) { args.push('-U', PGUSER); }
-      if (PGDATABASE) { args.push('-d', PGDATABASE); }
-      // Stop on first error; run whole file atomically with -1 (single txn)
-      args.push('-v', 'ON_ERROR_STOP=1', '-1', '-f', tmpPath);
-      const bin = process.env.PSQL_PATH || 'psql';
-      const child = spawn(bin, args, { env: { ...process.env, PGPASSWORD }, stdio: ['ignore','pipe','pipe'] });
-      let stderr = '', stdout = '';
-      let responded = false;
-      const safeSend = (status, payload) => {
-        if (responded || res.headersSent || res.writableEnded) return;
-        responded = true;
-        res.status(status).json(payload);
-      };
-      child.stderr.on('data', d => { stderr += d.toString(); });
-      child.stdout.on('data', d => { stdout += d.toString(); });
-      child.once('close', (code) => {
-        try { fs.unlinkSync(tmpPath); } catch(_){ }
-        if (code !== 0) {
-          return safeSend(500, { message: `psql exited with code ${code}`, error: stderr.trim() || stdout.trim() });
-        }
-        if (!responded) {
-          responded = true;
-          return res.json({ message: 'SQL restore completed' });
-        }
-      });
-      child.once('error', (err) => {
-        try { fs.unlinkSync(tmpPath); } catch(_){ }
-        return safeSend(500, { message: 'Failed to start psql. Set PSQL_PATH or install psql.', error: err.message });
-      });
-      return;
+    const { PGHOST, PGUSER, PGPASSWORD, PGDATABASE, PGPORT } = process.env;
+    if (!PGDATABASE) {
+      return res.status(500).json({ message: 'PGDATABASE env variable is required for restore' });
     }
 
-    // Otherwise expect JSON
-    let data;
-    try { data = JSON.parse(buf.toString('utf8')); } catch (e) { return res.status(400).json({ message: 'Invalid JSON' }); }
+    // Determine source path: if multer used with disk storage we have req.file.path
+    let sourcePath = req.file.path;
+    const originalName = (req.file.originalname || '').toLowerCase();
+    const hasKnownExt = originalName.endsWith('.backup') || originalName.endsWith('.dump');
+    if (!sourcePath) {
+      // Memory storage: write temp file
+      if (!req.file.buffer) return res.status(400).json({ message: 'Uploaded file has no data' });
+      sourcePath = path.join(os.tmpdir(), `restore-${Date.now()}.backup`);
+      fs.writeFileSync(sourcePath, req.file.buffer);
+    }
 
-    t = await sequelize.transaction();
-    const summary = { inserted: {}, skipped_identical: {}, conflicts: {} };
-    const ignore = ['createdAt','updatedAt'];
-    const eq = (a,b) => {
-      const ka = Object.keys(a).filter(k=>!ignore.includes(k)).sort();
-      const kb = Object.keys(b).filter(k=>!ignore.includes(k)).sort();
-      if (ka.length !== kb.length) return false;
-      for (let i=0;i<ka.length;i++){ const k=ka[i]; if(k!==kb[i]) return false; if(String(a[k])!==String(b[k])) return false; }
-      return true;
+    // Validate by original filename if present; allow proceed if unknown
+    if (originalName && !hasKnownExt) {
+      return res.status(400).json({ message: 'Invalid file extension. Expected .backup (or .dump) custom format dump.' });
+    }
+
+    const args = [];
+    if (PGHOST) args.push('-h', PGHOST);
+    if (PGPORT) args.push('-p', PGPORT);
+    if (PGUSER) args.push('-U', PGUSER);
+    // Clean existing objects, ignore ownership/privilege restoration
+    args.push('-c', '--if-exists', '--no-owner', '--no-privileges', '-d', PGDATABASE, sourcePath);
+
+    const bin = resolveBinary('PGRESTORE_PATH', 'pg_restore', [
+      'C\\\\Program Files\\\\PostgreSQL\\\\17\\\\bin\\\\pg_restore.exe',
+      'C\\\\Program Files\\\\PostgreSQL\\\\16\\\\bin\\\\pg_restore.exe',
+      'C\\\\Program Files\\\\PostgreSQL\\\\15\\\\bin\\\\pg_restore.exe',
+    ]);
+    let responded = false;
+    const safeSend = (status, payload) => {
+      if (responded || res.headersSent || res.writableEnded) return;
+      responded = true;
+      res.status(status).json(payload);
     };
-    async function insertIfMissing(Model, rows, name) {
-      const ins = 0, skip = 0, conf = 0;
-      let inserted=ins, skipped=skip, conflicts=conf;
-      for (const r of rows || []) {
-        const id = r.id;
-        if (!id) continue;
-        const existing = await Model.findByPk(id, { transaction: t, raw: true });
-        if (!existing) {
-          try { await Model.create(r, { transaction: t }); inserted++; }
-          catch(e){ conflicts++; }
-        } else {
-          if (eq(existing, r)) { skipped++; }
-          else { conflicts++; }
-        }
+    const child = spawn(bin, args, { env: { ...process.env, PGPASSWORD }, stdio: ['ignore', 'pipe', 'pipe'] });
+    let stderr = '';
+    child.stderr.on('data', d => { stderr += d.toString(); });
+    child.once('error', err => {
+      safeSend(500, { message: `Failed to start pg_restore (${bin}). Set PGRESTORE_PATH or install PostgreSQL client tools.`, error: err.message });
+    });
+    child.once('close', code => {
+      // Cleanup uploaded/temp file
+      try { fs.unlinkSync(sourcePath); } catch(_) {}
+      if (code !== 0) {
+        return safeSend(500, { message: `pg_restore exited with code ${code}`, error: stderr.trim() });
       }
-      summary.inserted[name]=inserted; summary.skipped_identical[name]=skipped; summary.conflicts[name]=conflicts;
-    }
-
-    // Order to satisfy FKs, insert-only
-    await insertIfMissing(Department, data.departments, 'departments');
-    await insertIfMissing(User, data.users, 'users');
-    await insertIfMissing(Room, data.rooms, 'rooms');
-    await insertIfMissing(Event, data.events, 'events');
-    await insertIfMissing(EventDepartment, data.eventDepartments, 'eventDepartments');
-    await insertIfMissing(Participant, data.participants, 'participants');
-    await insertIfMissing(Notification, data.notifications, 'notifications');
-    await insertIfMissing(Project, data.projects, 'projects');
-    await insertIfMissing(Task, data.tasks, 'tasks');
-    await insertIfMissing(Label, data.labels, 'labels');
-    await insertIfMissing(TaskLabel, data.taskLabels, 'taskLabels');
-    await insertIfMissing(TaskAssignment, data.taskAssignments, 'taskAssignments');
-    await insertIfMissing(TaskComment, data.taskComments, 'taskComments');
-
-    await t.commit();
-    return res.json({ message: 'Restore completed', summary });
+      safeSend(200, { message: 'Restore completed (full overwrite)' });
+    });
   } catch (e) {
-    try { if (t) await t.rollback(); } catch(_){ }
     return res.status(500).json({ message: e.message });
   }
 }

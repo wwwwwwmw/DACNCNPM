@@ -7,9 +7,10 @@ import 'dart:io' as io; // Safe: guarded usages with !kIsWeb
 import 'package:file_picker/file_picker.dart';
 import 'package:file_saver/file_saver.dart';
 import 'package:http/http.dart' as http;
-// ignore: avoid_web_libraries_in_flutter
-import 'dart:html' as html;
+// Conditional import: provides real dart:html on web, stubs elsewhere.
+import 'html_stub.dart' if (dart.library.html) 'html_web.dart' as html;
 import 'package:url_launcher/url_launcher_string.dart';
+import 'notification_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/user.dart';
 import '../models/event.dart';
@@ -40,7 +41,10 @@ class ApiService extends ChangeNotifier {
   List<Map<String, dynamic>> reportEventsByDepartment = [];
 
   ApiService({required this.baseUrl}) {
-    _dio = Dio(BaseOptions(baseUrl: baseUrl));
+    _dio = Dio(BaseOptions(baseUrl: baseUrl, headers: {
+      // Bypass ngrok free plan browser warning for API calls
+      'ngrok-skip-browser-warning': 'true',
+    }));
   }
 
   void setToken(String? token) {
@@ -131,6 +135,8 @@ class ApiService extends ChangeNotifier {
     final res = await _dio.get('/api/notifications');
     final list = (res.data as List).map((e) => NotificationModel.fromJson(e)).toList();
     notifications = list;
+    // Emit local notifications for newly received items (deduped)
+    await NotificationService.instance.showNewServerNotifications(list);
     notifyListeners();
   }
 
@@ -305,6 +311,8 @@ class ApiService extends ChangeNotifier {
       'limit': 200,
     });
     tasks = (res.data as List).map((e) => TaskModel.fromJson(e)).toList();
+    // Re-schedule task reminders for current user
+    await NotificationService.instance.scheduleTaskReminders(tasks, currentUserId: currentUser?.id);
     notifyListeners();
   }
 
@@ -572,6 +580,8 @@ class ApiService extends ChangeNotifier {
     final uri = Uri.parse('${_dio.options.baseUrl}/api/backup/restore');
     final req = http.MultipartRequest('POST', uri);
     if (_token != null) req.headers['Authorization'] = 'Bearer $_token';
+    // Ensure ngrok interstitial is skipped for multipart uploads
+    req.headers['ngrok-skip-browser-warning'] = 'true';
     req.files.add(http.MultipartFile.fromBytes('backupFile', fileBytes, filename: fileName, contentType: MediaType('application', 'octet-stream')));
     final streamed = await req.send();
     final bodyBytes = await streamed.stream.toBytes();
@@ -599,29 +609,31 @@ class ApiService extends ChangeNotifier {
     final qs = params.entries.map((e) => '${Uri.encodeQueryComponent(e.key)}=${Uri.encodeQueryComponent(e.value)}').join('&');
     final url = '${_dio.options.baseUrl}/api/reports/export/events${qs.isNotEmpty ? '?$qs' : ''}';
 
-    // For web/mobile, use url_launcher so browser downloads respecting Content-Disposition
-    final ok = await launchUrlString(url, mode: LaunchMode.externalApplication);
-    if (!ok) {
-      // Fallback: try direct GET to trigger download behavior (web may still need blob)
-      if (kIsWeb) {
-        final res = await _dio.get<List<int>>('/api/reports/export/events',
-            queryParameters: params..remove('token'),
-            options: Options(responseType: ResponseType.bytes));
-        final bytes = res.data;
-        if (bytes == null) throw Exception('No CSV data');
-        String filename = 'events.csv';
-        final cd = res.headers.map['content-disposition']?.join(';') ?? '';
-        final match = RegExp(r'filename\*=UTF-8\''"?([^";]+)"?|filename="?([^";]+)"?').firstMatch(cd);
-        if (match != null) filename = match.group(1) ?? match.group(2) ?? filename;
-        final blob = html.Blob([bytes], 'text/csv');
-        final blobUrl = html.Url.createObjectUrlFromBlob(blob);
-        final anchor = html.AnchorElement(href: blobUrl)..download = filename;
-        html.document.body?.append(anchor);
-        anchor.click();
-        anchor.remove();
-        html.Url.revokeObjectUrl(blobUrl);
-      } else {
-        // On mobile/desktop without a browser handler, simply issue the GET to ensure server reachable
+    // On web, avoid opening external tab (ngrok interstitial). Download via bytes + blob.
+    if (kIsWeb) {
+      final res = await _dio.get<List<int>>('/api/reports/export/events',
+          queryParameters: params..remove('token'),
+          options: Options(responseType: ResponseType.bytes));
+      final bytes = res.data;
+      if (bytes == null) throw Exception('No CSV data');
+      String filename = 'events.csv';
+      final cd = res.headers.map['content-disposition']?.join(';') ?? '';
+      final nameMatch = RegExp(r'filename="?([^";]+)"?', caseSensitive: false).firstMatch(cd);
+      if (nameMatch != null) {
+        final g1 = nameMatch.group(1);
+        if (g1 != null && g1.isNotEmpty) filename = g1;
+      }
+      final blob = html.Blob([bytes], 'text/csv');
+      final blobUrl = html.Url.createObjectUrlFromBlob(blob);
+      final anchor = html.AnchorElement(href: blobUrl)..download = filename;
+      html.document.body?.append(anchor);
+      anchor.click();
+      anchor.remove();
+      html.Url.revokeObjectUrl(blobUrl);
+    } else {
+      // For mobile/desktop, try opening externally first; otherwise do a simple GET
+      final ok = await launchUrlString(url, mode: LaunchMode.externalApplication);
+      if (!ok) {
         await _dio.get('/api/reports/export/events', queryParameters: params..remove('token'));
       }
     }

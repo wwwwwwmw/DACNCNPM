@@ -14,7 +14,8 @@ app.set('trust proxy', true);
 app.use(cors({
   origin: '*', // TODO: replace with specific domains in production
   methods: ['GET','POST','PUT','DELETE','OPTIONS'],
-  allowedHeaders: ['Content-Type','Authorization']
+  // Allow custom header to bypass ngrok browser warning interstitial
+  allowedHeaders: ['Content-Type','Authorization','ngrok-skip-browser-warning']
 }));
 // Relax some Helmet policies to ensure Swagger UI and static assets work over LAN
 app.use(helmet({

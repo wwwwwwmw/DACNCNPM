@@ -6,9 +6,11 @@ import 'screens/home/home_page.dart';
 import 'services/api_service.dart';
 import 'services/socket_service.dart';
 import 'utils/constants.dart';
+import 'services/notification_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await NotificationService.instance.init();
   final prefs = await SharedPreferences.getInstance();
   final token = prefs.getString('token');
   runApp(MyApp(initialToken: token));
@@ -26,7 +28,7 @@ class MyApp extends StatelessWidget {
         Provider(create: (_) => SocketService()),
       ],
       child: MaterialApp(
-        title: 'Lịch Công Tác',
+        title: 'company_schedule',
         theme: ThemeData(
           useMaterial3: true,
           colorScheme: ColorScheme.fromSeed(seedColor: Colors.indigo, brightness: Brightness.light),
@@ -66,6 +68,36 @@ class MyApp extends StatelessWidget {
           ),
         ),
         home: initialToken == null ? const LoginPage() : const HomePage(),
+        builder: (context, child) {
+          // After providers exist, perform one-time socket + initial fetch wiring
+          WidgetsBinding.instance.addPostFrameCallback((_) async {
+            final api = context.read<ApiService>();
+            final socket = context.read<SocketService>();
+            if (api.token != null) {
+              socket.connect(
+                baseUrl: Constants.socketBaseUrl,
+                token: api.token,
+                onNotification: (data) async {
+                  try {
+                    final title = data['title']?.toString() ?? 'Thông báo mới';
+                    final message = data['message']?.toString() ?? '';
+                    await NotificationService.instance.showNow(title: title, body: message);
+                  } catch (_) {
+                    await NotificationService.instance.showNow(title: 'Thông báo mới', body: data.toString());
+                  }
+                  await api.fetchNotifications();
+                },
+                onDataUpdated: (_) async {
+                  await api.fetchTasks();
+                },
+              );
+              // Initial data fetch to populate and schedule reminders if not already
+              await api.fetchNotifications();
+              await api.fetchTasks();
+            }
+          });
+          return child!;
+        },
       ),
     );
   }

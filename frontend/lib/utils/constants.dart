@@ -6,7 +6,12 @@ class Constants {
     const envUrl = String.fromEnvironment('API_BASE_URL');
     if (envUrl.isNotEmpty) return envUrl;
 
-    // Mặc định cho môi trường dev (không dùng dart:io để tránh lỗi trên web):
+    // Mặc định dùng ngrok để máy thật kết nối ngay khi RUN.
+    // Cập nhật URL này khi bạn tạo phiên ngrok mới.
+    const defaultNgrok = 'https://unranging-cruciformly-aleta.ngrok-free.dev';
+    if (defaultNgrok.isNotEmpty) return defaultNgrok;
+
+    // Fallback dev (ít dùng khi đã cấu hình ngrok ở trên)
     if (kIsWeb) return 'http://localhost:8000';
     if (defaultTargetPlatform == TargetPlatform.android) {
       // Android emulator: host máy = 10.0.2.2

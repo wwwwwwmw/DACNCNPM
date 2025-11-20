@@ -32,11 +32,7 @@ class _TaskStatusPageState extends State<TaskStatusPage> {
     final api = context.watch<ApiService>();
     final projects = api.projects;
     final filtered = _filteredTasks(api.tasks);
-    final stats = {
-      'todo': filtered.where((t) => t.status == 'todo').length,
-      'in_progress': filtered.where((t) => t.status == 'in_progress').length,
-      'completed': filtered.where((t) => t.status == 'completed').length,
-    };
+    final stats = _computeStats(filtered);
     // Nếu đang lọc theo trạng thái mà không còn task nào, tự bỏ lọc trạng thái
     if (_selectedStatus != null && stats[_selectedStatus] == 0) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -75,24 +71,30 @@ class _TaskStatusPageState extends State<TaskStatusPage> {
               ),
             ),
             const SizedBox(width: 8),
-            ElevatedButton.icon(
-              onPressed: () async {
-                final now = DateTime.now();
-                final picked = await showDateRangePicker(
-                  context: context,
-                  firstDate: DateTime(now.year - 5),
-                  lastDate: DateTime(now.year + 5),
-                  initialDateRange: _range,
-                );
-                if (picked != null) {
-                  setState(() {
-                  _range = picked;
-                  _selectedStatus = null; // đổi khoảng ngày thì bỏ lọc trạng thái
-                });
-                }
-              },
-              icon: const Icon(Icons.filter_alt),
-              label: Text(_range == null ? 'Khoảng ngày' : '${_fmtDate(_range!.start)} → ${_fmtDate(_range!.end)}'),
+            Flexible(
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
+                child: ElevatedButton.icon(
+                  onPressed: () async {
+                    final now = DateTime.now();
+                    final picked = await showDateRangePicker(
+                      context: context,
+                      firstDate: DateTime(now.year - 5),
+                      lastDate: DateTime(now.year + 5),
+                      initialDateRange: _range,
+                    );
+                    if (picked != null) {
+                      setState(() {
+                        _range = picked;
+                        _selectedStatus = null; // đổi khoảng ngày thì bỏ lọc trạng thái
+                      });
+                    }
+                  },
+                  icon: const Icon(Icons.filter_alt),
+                  label: Text(_range == null ? 'Khoảng ngày' : '${_fmtDate(_range!.start)} → ${_fmtDate(_range!.end)}'),
+                ),
+              ),
             ),
             const SizedBox(width: 8),
             IconButton(onPressed: () => setState(() { _projectId = null; _range = null; _selectedStatus = null; }), icon: const Icon(Icons.clear)),
@@ -145,7 +147,7 @@ class _TaskStatusPageState extends State<TaskStatusPage> {
   List<TaskModel> _filteredTasks(List<TaskModel> tasks) {
     Iterable<TaskModel> list = tasks;
     if (_selectedStatus != null) {
-      list = list.where((t) => t.status == _selectedStatus);
+      list = list.where((t) => _derivedStatus(t) == _selectedStatus);
     }
     if (_projectId != null) {
       list = list.where((t) => t.project?.id == _projectId);
@@ -166,6 +168,24 @@ class _TaskStatusPageState extends State<TaskStatusPage> {
       list = list.where(overlaps);
     }
     return list.toList();
+  }
+
+  Map<String,int> _computeStats(List<TaskModel> tasks) {
+    int todo = 0, inProgress = 0, completed = 0;
+    for (final t in tasks) {
+      final s = _derivedStatus(t);
+      if (s == 'completed') completed++;
+      else if (s == 'in_progress') inProgress++;
+      else todo++;
+    }
+    return {'todo': todo, 'in_progress': inProgress, 'completed': completed};
+  }
+
+  String _derivedStatus(TaskModel t) {
+    final asg = t.assignments;
+    if (asg.isNotEmpty && asg.every((a) => a.progress >= 100)) return 'completed';
+    if (asg.any((a) => a.progress > 0 && a.progress < 100)) return 'in_progress';
+    return 'todo';
   }
 
   String _localized(String status) {

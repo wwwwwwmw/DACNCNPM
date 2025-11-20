@@ -1,5 +1,6 @@
 // ignore_for_file: use_build_context_synchronously
 import 'package:flutter/material.dart';
+import 'package:dio/dio.dart';
 import 'package:provider/provider.dart';
 import '../../models/room.dart';
 import '../reports/event_report_page.dart';
@@ -174,17 +175,41 @@ class _EventsAdminTabState extends State<EventsAdminTab> {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Chọn phòng họp trống')));
         return;
       }
-      await context.read<ApiService>().createEvent(
-        title: titleCtrl.text.trim(),
-        description: descCtrl.text.trim().isEmpty? null: descCtrl.text.trim(),
-        start: start,
-        end: end,
-        participantIds: eventType == 'work' ? selectedParticipantIds.toList() : null,
-        roomId: eventType == 'meeting' ? selectedRoomId : null,
-        departmentIds: selectedDeptIds.isNotEmpty ? selectedDeptIds.toList() : null,
-        type: eventType,
-      );
-      if (!mounted) return;
+      if (eventType == 'meeting') {
+        EventModel? conflict;
+        for (final ev in api.events) {
+          if (ev.type=='meeting' && ev.roomId==selectedRoomId && ev.startTime.isBefore(end!) && ev.endTime.isAfter(start!)) { conflict = ev; break; }
+        }
+        if (conflict != null) {
+          final cStart = _fmtDT(conflict.startTime.toLocal());
+          final cEnd = _fmtDT(conflict.endTime.toLocal());
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Đã có người đặt phòng họp từ $cStart đến $cEnd. Vui lòng chọn giờ khác.')));
+          return;
+        }
+      }
+      try {
+        await context.read<ApiService>().createEvent(
+          title: titleCtrl.text.trim(),
+          description: descCtrl.text.trim().isEmpty? null: descCtrl.text.trim(),
+          start: start,
+          end: end,
+          participantIds: eventType == 'work' ? selectedParticipantIds.toList() : null,
+          roomId: eventType == 'meeting' ? selectedRoomId : null,
+          departmentIds: selectedDeptIds.isNotEmpty ? selectedDeptIds.toList() : null,
+          type: eventType,
+        );
+        if (!mounted) return;
+        await context.read<ApiService>().fetchEvents();
+      } on DioException catch (e) {
+        if (!mounted) return;
+        final msg = (e.response?.statusCode == 400)
+            ? 'Không tạo được lịch: dữ liệu không hợp lệ hoặc trùng thời gian.'
+            : 'Lỗi tạo lịch: ${e.message}';
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+      } catch (e) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Lỗi: $e')));
+      }
     }
   }
 
@@ -192,6 +217,15 @@ class _EventsAdminTabState extends State<EventsAdminTab> {
     DateTime? start = ev.startTime; DateTime? end = ev.endTime;
     final titleCtrl = TextEditingController(text: ev.title);
     final descCtrl = TextEditingController(text: ev.description ?? '');
+    String? selectedRoomId = ev.type=='meeting' ? ev.roomId : null;
+    List<RoomModel> availableRoomsEdit() {
+      if (start == null || end == null) return context.read<ApiService>().rooms;
+      final api = context.read<ApiService>();
+      return api.rooms.where((r){
+        final overlap = api.events.any((other) => other.id!=ev.id && other.type=='meeting' && other.roomId==r.id && other.startTime.isBefore(end!) && other.endTime.isAfter(start!));
+        return !overlap;
+      }).toList();
+    }
     Future<void> pickStart() async {
       final date = await showDatePicker(context: context, firstDate: DateTime(2020), lastDate: DateTime(2100), initialDate: start ?? DateTime.now());
       if (date == null) return; final time = await showTimePicker(context: context, initialTime: TimeOfDay.fromDateTime(start ?? DateTime.now()));
@@ -204,13 +238,25 @@ class _EventsAdminTabState extends State<EventsAdminTab> {
     }
     final ok = await showDialog<bool>(context: context, builder: (c) => StatefulBuilder(builder:(c,setStateDialog){
       return AlertDialog(
-        title: const Text('Sửa lịch'),
+        title: Text(ev.type=='meeting'? 'Sửa lịch họp':'Sửa lịch'),
         content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
           TextField(controller: titleCtrl, decoration: const InputDecoration(labelText: 'Tiêu đề *')),
           TextField(controller: descCtrl, decoration: const InputDecoration(labelText: 'Mô tả')),
           const SizedBox(height:8),
-          Row(children:[Expanded(child: Text(start==null? 'Chọn bắt đầu':'Bắt đầu: ${start!.toLocal()}')), TextButton(onPressed: () async {await pickStart(); setStateDialog((){});}, child: const Text('Chọn'))]),
-          Row(children:[Expanded(child: Text(end==null? 'Chọn kết thúc':'Kết thúc: ${end!.toLocal()}')), TextButton(onPressed: () async {await pickEnd(); setStateDialog((){});}, child: const Text('Chọn'))]),
+          Row(children:[Expanded(child: Text(start==null? 'Chọn bắt đầu':'Bắt đầu: ${_fmtDT(start!.toLocal())}')), TextButton(onPressed: () async {await pickStart(); setStateDialog((){});}, child: const Text('Chọn'))]),
+          Row(children:[Expanded(child: Text(end==null? 'Chọn kết thúc':'Kết thúc: ${_fmtDT(end!.toLocal())}')), TextButton(onPressed: () async {await pickEnd(); setStateDialog((){});}, child: const Text('Chọn'))]),
+          if (ev.type=='meeting') ...[
+            const SizedBox(height:8),
+            Row(children:[
+              const Text('Phòng họp:'), const SizedBox(width:8),
+              DropdownButton<String>(
+                value: selectedRoomId,
+                hint: const Text('Chọn phòng'),
+                items: availableRoomsEdit().map((r)=>DropdownMenuItem(value: r.id, child: Text(r.name))).toList(),
+                onChanged: (v){ selectedRoomId = v; setStateDialog((){}); },
+              )
+            ])
+          ]
         ])),
         actions: [
           TextButton(onPressed: ()=>Navigator.pop(c,false), child: const Text('Hủy')),
@@ -220,8 +266,37 @@ class _EventsAdminTabState extends State<EventsAdminTab> {
     }));
     if (ok == true && titleCtrl.text.trim().isNotEmpty && start!=null && end!=null) {
       if (!context.mounted) return;
-      await context.read<ApiService>().updateEvent(ev.id, title: titleCtrl.text.trim(), description: descCtrl.text.trim().isEmpty? null: descCtrl.text.trim(), start: start, end: end);
-      if (!mounted) return;
+      if (ev.type=='meeting') {
+        if (selectedRoomId == null) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Chọn phòng họp trống')));
+          return;
+        }
+        final api = context.read<ApiService>();
+        EventModel? conflict;
+        for (final other in api.events) {
+          if (other.id!=ev.id && other.type=='meeting' && other.roomId==selectedRoomId && other.startTime.isBefore(end!) && other.endTime.isAfter(start!)) { conflict = other; break; }
+        }
+        if (conflict != null) {
+          final cStart = _fmtDT(conflict.startTime.toLocal());
+          final cEnd = _fmtDT(conflict.endTime.toLocal());
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Đã có người đặt phòng họp từ $cStart đến $cEnd. Vui lòng chọn giờ khác.')));
+          return;
+        }
+      }
+      try {
+        await context.read<ApiService>().updateEvent(ev.id, title: titleCtrl.text.trim(), description: descCtrl.text.trim().isEmpty? null: descCtrl.text.trim(), start: start, end: end, roomId: selectedRoomId);
+        if (!mounted) return;
+        await context.read<ApiService>().fetchEvents();
+      } on DioException catch (e) {
+        if (!mounted) return;
+        final msg = (e.response?.statusCode == 400)
+            ? 'Không cập nhật được: dữ liệu không hợp lệ hoặc trùng thời gian.'
+            : 'Lỗi cập nhật: ${e.message}';
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+      } catch (e) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Lỗi: $e')));
+      }
     }
   }
 
@@ -238,37 +313,45 @@ class _EventsAdminTabState extends State<EventsAdminTab> {
   @override
   Widget build(BuildContext context) {
     final service = context.watch<ApiService>();
-    final list = _filteredEvents(service.events);
+    final filtered = _filteredEvents(service.events);
+    final now = DateTime.now();
+    final upcoming = <EventModel>[];
+    final past = <EventModel>[];
+    for (final e in filtered) {
+      if (e.endTime.isAfter(now)) {
+        upcoming.add(e);
+      } else {
+        past.add(e);
+      }
+    }
+    upcoming.sort((a,b)=>a.startTime.compareTo(b.startTime)); // soonest first
+    past.sort((a,b)=>b.startTime.compareTo(a.startTime)); // most recent past first
     return Stack(children: [
       RefreshIndicator(
         onRefresh: _load,
-        child: ListView.builder(
+        child: ListView(
           padding: const EdgeInsets.only(bottom: 112, top: 8),
-          itemCount: list.length + 1,
-          itemBuilder: (c,i){
-            if (i == 0) {
-              return _buildFilterBar(context);
-            }
-            final ev = list[i-1];
-            final startStr = ev.startTime.toLocal().toString();
-            final endStr = ev.endTime.toLocal().toString();
-            return Card(
-              child: ListTile(
-                leading: const Icon(Icons.event),
-                title: Text(ev.title),
-                subtitle: Text('$startStr → $endStr\nTrạng thái: ${ev.status}'),
-                onTap: ()=>_showEdit(ev),
-                isThreeLine: true,
-                trailing: PopupMenuButton<String>(
-                  onSelected: (v){ if(v=='edit') _showEdit(ev); if(v=='delete') _delete(ev); },
-                  itemBuilder: (_) => const [
-                    PopupMenuItem(value: 'edit', child: Text('Sửa')),
-                    PopupMenuItem(value: 'delete', child: Text('Xóa')),
-                  ],
-                ),
+          children: [
+            _buildFilterBar(context),
+            if (upcoming.isNotEmpty) ...[
+              const Padding(
+                padding: EdgeInsets.fromLTRB(16, 8, 16, 4),
+                child: Text('Sắp diễn ra', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
               ),
-            );
-          }
+              for (final ev in upcoming) _eventCard(ev),
+            ],
+            if (past.isNotEmpty) ...[
+              const Padding(
+                padding: EdgeInsets.fromLTRB(16, 16, 16, 4),
+                child: Text('Đã qua', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+              ),
+              for (final ev in past) _eventCard(ev),
+            ],
+            if (upcoming.isEmpty && past.isEmpty) const Padding(
+              padding: EdgeInsets.all(24),
+              child: Center(child: Text('Không có lịch trong khoảng này')),
+            )
+          ],
         ),
       ),
       if(_loading) const Positioned.fill(child: Center(child: CircularProgressIndicator())),
@@ -291,6 +374,45 @@ class _EventsAdminTabState extends State<EventsAdminTab> {
         ),
       ),
     ]);
+  }
+
+  Widget _eventCard(EventModel ev) {
+    final startStr = _fmtDT(ev.startTime.toLocal());
+    final endStr = _fmtDT(ev.endTime.toLocal());
+    final api = context.read<ApiService>();
+    String? roomName;
+    if (ev.type=='meeting' && ev.roomId!=null) {
+      for (final r in api.rooms) { if (r.id==ev.roomId) { roomName = r.name; break; } }
+      roomName ??= 'Không rõ';
+    }
+    return Card(
+      margin: const EdgeInsets.fromLTRB(12,4,12,4),
+      child: ListTile(
+        leading: const Icon(Icons.event),
+        title: Text(ev.title),
+        subtitle: Text(roomName==null
+            ? '$startStr → $endStr\nTrạng thái: ${ev.status}'
+            : '$startStr → $endStr\nPhòng: $roomName\nTrạng thái: ${ev.status}'),
+        onTap: ()=>_showEdit(ev),
+        isThreeLine: true,
+        trailing: PopupMenuButton<String>(
+          onSelected: (v){ if(v=='edit') _showEdit(ev); if(v=='delete') _delete(ev); },
+          itemBuilder: (_) => const [
+            PopupMenuItem(value: 'edit', child: Text('Sửa')),
+            PopupMenuItem(value: 'delete', child: Text('Xóa')),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _fmtDT(DateTime d) {
+    final dd = d.day.toString().padLeft(2,'0');
+    final mm = d.month.toString().padLeft(2,'0');
+    final yy = d.year.toString();
+    final hh = d.hour.toString().padLeft(2,'0');
+    final mi = d.minute.toString().padLeft(2,'0');
+    return '$dd/$mm/$yy $hh:$mi';
   }
 
   Widget _buildFilterBar(BuildContext context) {

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../services/api_service.dart';
 import '../../models/event.dart';
+import 'package:dio/dio.dart';
 
 class ManagerHomePage extends StatefulWidget {
   const ManagerHomePage({super.key});
@@ -186,10 +187,21 @@ class _MeetingsTabState extends State<_MeetingsTab> {
           separatorBuilder: (_, __) => const SizedBox(height: 8),
           itemBuilder: (_, i) {
             final e = events[i];
+            final startStr = _fmtDT(e.startTime.toLocal());
+            final endStr = _fmtDT(e.endTime.toLocal());
+            String? roomName;
+            if (e.type=='meeting' && e.roomId!=null) {
+              for (final r in api.rooms) { if (r.id==e.roomId) { roomName = r.name; break; } }
+            }
             return ListTile(
               leading: const Icon(Icons.event_note_outlined),
               title: Text(e.title),
-              subtitle: Text('${e.startTime} → ${e.endTime} • ${e.status}${e.isGlobal ? ' • Tất cả' : ''}'),
+              subtitle: Text([
+                '$startStr → $endStr',
+                if (roomName != null) 'Phòng: $roomName',
+                e.status,
+                if (e.isGlobal) 'Tất cả',
+              ].join(' • ')),
               onTap: () => _openEditMeeting(context, e),
             );
           },
@@ -217,6 +229,7 @@ class _MeetingsTabState extends State<_MeetingsTab> {
     String? roomId;
     final selected = <String>{};
     await showDialog(context: context, builder: (ctx) {
+      String? errorText;
       return StatefulBuilder(builder: (ctx, setS) {
         return AlertDialog(
           title: const Text('Tạo lịch họp'),
@@ -272,6 +285,10 @@ class _MeetingsTabState extends State<_MeetingsTab> {
                   )).toList(),
                 ),
               )
+              , if (errorText != null) Padding(
+                padding: const EdgeInsets.only(top:8),
+                child: Align(alignment: Alignment.centerLeft, child: Text(errorText!, style: const TextStyle(color: Colors.red))),
+              )
             ]),
           ),
           actions: [
@@ -279,17 +296,38 @@ class _MeetingsTabState extends State<_MeetingsTab> {
             ElevatedButton(onPressed: () async {
               if (titleCtrl.text.trim().isEmpty || start==null || end==null) { return; }
               final isGlobal = selected.contains('__GLOBAL__');
-              await api.createEvent(
-                title: titleCtrl.text.trim(),
-                start: start,
-                end: end,
-                roomId: roomId,
-                participantIds: selected.where((x)=>x!='__GLOBAL__').toList(),
-                departmentIds: isGlobal ? null : (me?.departmentId != null ? [me!.departmentId!] : null),
-                isGlobal: isGlobal,
-                type: 'meeting',
-              );
-              if (!ctx.mounted) return; Navigator.pop(ctx);
+              // Conflict check (quick local)
+              if (roomId != null) {
+                for (final ev in api.events) {
+                  if (ev.type=='meeting' && ev.roomId==roomId && ev.startTime.isBefore(end!) && ev.endTime.isAfter(start!)) {
+                    final cStart = _fmtDT(ev.startTime.toLocal());
+                    final cEnd = _fmtDT(ev.endTime.toLocal());
+                    setS(()=> errorText = 'Phòng đã được đặt từ $cStart đến $cEnd. Chọn giờ khác.');
+                    return;
+                  }
+                }
+              }
+              try {
+                await api.createEvent(
+                  title: titleCtrl.text.trim(),
+                  start: start,
+                  end: end,
+                  roomId: roomId,
+                  participantIds: selected.where((x)=>x!='__GLOBAL__').toList(),
+                  departmentIds: isGlobal ? null : (me?.departmentId != null ? [me!.departmentId!] : null),
+                  isGlobal: isGlobal,
+                  type: 'meeting',
+                );
+                if (!ctx.mounted) return; Navigator.pop(ctx);
+                await api.fetchEvents();
+              } on DioException catch (e) {
+                final msg = (e.response?.statusCode == 400)
+                    ? 'Không tạo được lịch: dữ liệu không hợp lệ hoặc trùng thời gian.'
+                    : 'Lỗi tạo lịch: ${e.message}';
+                setS(()=> errorText = msg);
+              } catch (e) {
+                setS(()=> errorText = 'Lỗi: $e');
+              }
             }, child: const Text('Tạo'))
           ],
         );
@@ -304,8 +342,9 @@ class _MeetingsTabState extends State<_MeetingsTab> {
     final titleCtrl = TextEditingController(text: event.title);
     DateTime? start = event.startTime;
     DateTime? end = event.endTime;
-    String? roomId; // room selection (simplified)
+    String? roomId = event.roomId; // preselect current room
     await showDialog(context: context, builder: (ctx) {
+      String? errorText;
       return StatefulBuilder(builder: (ctx, setS) {
         return AlertDialog(
           title: const Text('Sửa lịch họp'),
@@ -337,6 +376,10 @@ class _MeetingsTabState extends State<_MeetingsTab> {
               ),
               const SizedBox(height: 8),
               Text(event.isGlobal ? 'Phạm vi: Tất cả phòng ban' : 'Phạm vi: Phòng ban'),
+              if (errorText != null) Padding(
+                padding: const EdgeInsets.only(top:8),
+                child: Align(alignment: Alignment.centerLeft, child: Text(errorText!, style: const TextStyle(color: Colors.red))),
+              )
             ]),
           ),
           actions: [
@@ -347,13 +390,43 @@ class _MeetingsTabState extends State<_MeetingsTab> {
                 if (!ctx.mounted) return; Navigator.pop(ctx);
               }, child: const Text('Xóa', style: TextStyle(color: Colors.red))),
               ElevatedButton(onPressed: () async {
-              if (titleCtrl.text.trim().isEmpty || start==null || end==null) { return; }
-              await api.updateEvent(event.id, title: titleCtrl.text.trim(), start: start, end: end, roomId: roomId);
-                if (!ctx.mounted) return; Navigator.pop(ctx);
-            }, child: const Text('Lưu')),
+                if (titleCtrl.text.trim().isEmpty || start==null || end==null) { return; }
+                // Conflict check
+                if (roomId != null) {
+                  for (final ev in api.events) {
+                    if (ev.id!=event.id && ev.type=='meeting' && ev.roomId==roomId && ev.startTime.isBefore(end!) && ev.endTime.isAfter(start!)) {
+                      final cStart = _fmtDT(ev.startTime.toLocal());
+                      final cEnd = _fmtDT(ev.endTime.toLocal());
+                      setS(()=> errorText = 'Phòng đã được đặt từ $cStart đến $cEnd. Chọn giờ khác.');
+                      return;
+                    }
+                  }
+                }
+                try {
+                  await api.updateEvent(event.id, title: titleCtrl.text.trim(), start: start, end: end, roomId: roomId);
+                  if (!ctx.mounted) return; Navigator.pop(ctx);
+                  await api.fetchEvents();
+                } on DioException catch (e) {
+                  final msg = (e.response?.statusCode == 400)
+                      ? 'Không cập nhật được: dữ liệu không hợp lệ hoặc trùng thời gian.'
+                      : 'Lỗi cập nhật: ${e.message}';
+                  setS(()=> errorText = msg);
+                } catch (e) {
+                  setS(()=> errorText = 'Lỗi: $e');
+                }
+              }, child: const Text('Lưu')),
           ],
         );
       });
     });
+  }
+
+  String _fmtDT(DateTime d) {
+    final dd = d.day.toString().padLeft(2,'0');
+    final mm = d.month.toString().padLeft(2,'0');
+    final yy = d.year.toString();
+    final hh = d.hour.toString().padLeft(2,'0');
+    final mi = d.minute.toString().padLeft(2,'0');
+    return '$dd/$mm/$yy $hh:$mi';
   }
 }

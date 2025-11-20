@@ -32,9 +32,18 @@ class _HomeTasksPageState extends State<HomeTasksPage> {
   Widget build(BuildContext context) {
     final api = context.watch<ApiService>();
     final tasks = api.tasks;
-    final stats = api.taskStats;
-    final total = stats['todo']! + stats['in_progress']! + stats['completed']!;
-    final completedPct = total == 0 ? 0.0 : stats['completed']! / total;
+    // Tính trạng thái theo tiến độ assignments thay vì field tĩnh
+    int todo = 0, inProgress = 0, completed = 0;
+    for (final t in tasks) {
+      final asg = t.assignments;
+      final derived = (asg.isNotEmpty && asg.every((a) => a.progress >= 100))
+          ? 'completed'
+          : (asg.any((a) => a.progress > 0 && a.progress < 100) ? 'in_progress' : 'todo');
+      if (derived == 'completed') completed++; else if (derived == 'in_progress') inProgress++; else todo++;
+    }
+    final stats = {'todo': todo, 'in_progress': inProgress, 'completed': completed};
+    final total = todo + inProgress + completed;
+    final completedPct = total == 0 ? 0.0 : completed / total;
     // final cs = Theme.of(context).colorScheme; // reserved for future theming
 
     return Scaffold(
@@ -68,7 +77,13 @@ class _HomeTasksPageState extends State<HomeTasksPage> {
             const Text('Đang thực hiện', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
             const SizedBox(height: 12),
             ...tasks
-              .where((t) => t.status != 'completed')
+              .where((t) {
+                final asg = t.assignments;
+                final derived = (asg.isNotEmpty && asg.every((a) => a.progress >= 100))
+                    ? 'completed'
+                    : (asg.any((a) => a.progress > 0 && a.progress < 100) ? 'in_progress' : 'todo');
+                return derived != 'completed';
+              })
               .where((t) => _search.isEmpty || t.title.toLowerCase().contains(_search.toLowerCase()))
               .map((t) => TaskListItemCard(task: t, onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => TaskDetailPage(task: t))))),
             if (tasks.isEmpty) const Center(child: Padding(padding: EdgeInsets.all(32), child: Text('Chưa có task'))),
@@ -76,11 +91,17 @@ class _HomeTasksPageState extends State<HomeTasksPage> {
         ),
       ),
       floatingActionButton: (api.currentUser != null && api.currentUser!.role != 'employee')
-          ? _FabMenu(onAddTask: () async {
-              await Navigator.push(context, MaterialPageRoute(builder: (_) => const AddTaskPage()));
-            }, onProjects: () {
-              Navigator.push(context, MaterialPageRoute(builder: (_) => const ProjectsPage()));
-            })
+          ? _FabMenu(
+              onAddTask: () async {
+                await Navigator.push(context, MaterialPageRoute(builder: (_) => const AddTaskPage()));
+              },
+              onProjects: () {
+                Navigator.push(context, MaterialPageRoute(builder: (_) => const ProjectsPage()));
+              },
+              onAddWorkEvent: () async {
+                await _createWorkEventDialog(context);
+              },
+            )
           : null,
     );
   }
@@ -184,20 +205,101 @@ class _FilterBar extends StatelessWidget {
   }
 }
 
+Future<void> _createWorkEventDialog(BuildContext context) async {
+  final titleCtrl = TextEditingController();
+  final descCtrl = TextEditingController();
+  DateTime? start; DateTime? end;
+  String? departmentId; String? participantId;
+  final api = context.read<ApiService>();
+  final me = api.currentUser;
+  List<Map<String,String>> deptUsers = [];
+  if (me != null && (me.role == 'manager' || me.role == 'admin')) {
+    final users = await api.listUsers(limit:200, offset:0);
+    final filtered = (me.role == 'manager' && me.departmentId != null)
+        ? users.where((u)=> u.departmentId == me.departmentId).toList()
+        : users;
+    deptUsers = filtered.map((u)=> {'id':u.id,'name':u.name}).toList();
+  }
+  if (me != null && me.role == 'manager') {
+    departmentId = me.departmentId;
+  } else if (me != null && me.role == 'admin') {
+    await api.fetchDepartments();
+  }
+  await showDialog(context: context, builder: (ctx){
+    return StatefulBuilder(builder: (ctx, setS){
+      return AlertDialog(
+        title: const Text('Tạo Lịch công tác'),
+        content: SingleChildScrollView(
+          child: Column(mainAxisSize: MainAxisSize.min, children:[
+            TextField(controller: titleCtrl, decoration: const InputDecoration(labelText: 'Tiêu đề')),
+            TextField(controller: descCtrl, decoration: const InputDecoration(labelText: 'Mô tả'), maxLines:3),
+            const SizedBox(height:8),
+            OutlinedButton(onPressed: () async {
+              final now = DateTime.now();
+              final d = await showDatePicker(context: ctx, firstDate: DateTime(now.year-1), lastDate: DateTime(now.year+2), initialDate: now);
+              if (d==null) return; final t = await showTimePicker(context: ctx, initialTime: TimeOfDay.now()); if (t==null) return;
+              setS(()=> start = DateTime(d.year,d.month,d.day,t.hour,t.minute));
+            }, child: Text(start==null? 'Chọn bắt đầu' : _fmtDT(start!))),
+            OutlinedButton(onPressed: () async {
+              final now = DateTime.now();
+              final d = await showDatePicker(context: ctx, firstDate: DateTime(now.year-1), lastDate: DateTime(now.year+2), initialDate: now);
+              if (d==null) return; final t = await showTimePicker(context: ctx, initialTime: TimeOfDay.now()); if (t==null) return;
+              setS(()=> end = DateTime(d.year,d.month,d.day,t.hour,t.minute));
+            }, child: Text(end==null? 'Chọn kết thúc' : _fmtDT(end!))),
+            if (me != null && me.role == 'admin') DropdownButtonFormField<String>(
+              value: departmentId,
+              hint: const Text('Phòng ban'),
+              items: api.departments.map((d)=> DropdownMenuItem(value:d.id, child: Text(d.name))).toList(),
+              onChanged: (v)=> setS(()=> departmentId = v),
+            ),
+            if (deptUsers.isNotEmpty) DropdownButtonFormField<String>(
+              value: participantId,
+              hint: const Text('Người tham gia (tùy chọn)'),
+              items: deptUsers.map((u)=> DropdownMenuItem(value:u['id'], child: Text(u['name']!))).toList(),
+              onChanged: (v)=> setS(()=> participantId = v),
+            ),
+          ]),
+        ),
+        actions: [
+          TextButton(onPressed: ()=> Navigator.pop(ctx), child: const Text('Hủy')),
+          ElevatedButton(onPressed: () async {
+            if (titleCtrl.text.trim().isEmpty) return;
+            await api.createEvent(
+              title: titleCtrl.text.trim(),
+              description: descCtrl.text.trim().isEmpty? null : descCtrl.text.trim(),
+              start: start,
+              end: end,
+              departmentIds: departmentId!=null? [departmentId!]: null,
+              participantIds: participantId!=null? [participantId!]: null,
+              type: 'work',
+            );
+            await api.fetchEvents();
+            if (ctx.mounted) Navigator.pop(ctx);
+          }, child: const Text('Tạo'))
+        ],
+      );
+    });
+  });
+}
+
+String _fmtDT(DateTime dt){
+  return '${dt.day.toString().padLeft(2,'0')}/${dt.month.toString().padLeft(2,'0')}/${dt.year} ${dt.hour.toString().padLeft(2,'0')}:${dt.minute.toString().padLeft(2,'0')}';
+}
+
 class _FabMenu extends StatelessWidget {
-  final VoidCallback onAddTask; final VoidCallback onProjects;
-  const _FabMenu({required this.onAddTask, required this.onProjects});
+  final VoidCallback onAddTask; final VoidCallback onProjects; final VoidCallback onAddWorkEvent;
+  const _FabMenu({required this.onAddTask, required this.onProjects, required this.onAddWorkEvent});
   @override
   Widget build(BuildContext context) {
     return FloatingActionButton(onPressed: () {
-      showModalBottomSheet(context: context, shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))), builder: (_) => _AddSheet(onAddTask: onAddTask, onProjects: onProjects));
+      showModalBottomSheet(context: context, shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))), builder: (_) => _AddSheet(onAddTask: onAddTask, onProjects: onProjects, onAddWorkEvent: onAddWorkEvent));
     }, child: const Icon(Icons.add));
   }
 }
 
 class _AddSheet extends StatelessWidget {
-  final VoidCallback onAddTask; final VoidCallback onProjects;
-  const _AddSheet({required this.onAddTask, required this.onProjects});
+  final VoidCallback onAddTask; final VoidCallback onProjects; final VoidCallback onAddWorkEvent;
+  const _AddSheet({required this.onAddTask, required this.onProjects, required this.onAddWorkEvent});
   @override
   Widget build(BuildContext context) {
     return Padding(
@@ -205,6 +307,7 @@ class _AddSheet extends StatelessWidget {
       child: Column(mainAxisSize: MainAxisSize.min, children: [
         ListTile(onTap: () { Navigator.pop(context); onAddTask(); }, leading: const Icon(Icons.task_alt), title: const Text('Tạo Nhiệm vụ')),
         ListTile(onTap: () { Navigator.pop(context); onProjects(); }, leading: const Icon(Icons.workspaces), title: const Text('Dự án')),
+        ListTile(onTap: () { Navigator.pop(context); onAddWorkEvent(); }, leading: const Icon(Icons.event_note), title: const Text('Lịch công tác')),
       ]),
     );
   }

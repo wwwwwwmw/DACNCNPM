@@ -24,7 +24,16 @@ class _ProfilePageState extends State<ProfilePage> {
   Widget build(BuildContext context) {
     final api = context.watch<ApiService>();
     final u = api.currentUser;
-    final stats = api.taskStats;
+    // Derive task status counts from assignment progress (ignore stored status)
+    int todo = 0, inProgress = 0, completed = 0;
+    for (final t in api.tasks) {
+      final asg = t.assignments;
+      final derived = (asg.isNotEmpty && asg.every((a) => a.progress >= 100))
+          ? 'completed'
+          : (asg.any((a) => a.progress > 0 && a.progress < 100) ? 'in_progress' : 'todo');
+      if (derived == 'completed') completed++; else if (derived == 'in_progress') inProgress++; else todo++;
+    }
+    final stats = { 'completed': completed, 'in_progress': inProgress, 'todo': todo };
     final cs = Theme.of(context).colorScheme;
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),

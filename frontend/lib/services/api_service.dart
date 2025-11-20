@@ -41,10 +41,15 @@ class ApiService extends ChangeNotifier {
   List<Map<String, dynamic>> reportEventsByDepartment = [];
 
   ApiService({required this.baseUrl}) {
-    _dio = Dio(BaseOptions(baseUrl: baseUrl, headers: {
-      // Bypass ngrok free plan browser warning for API calls
-      'ngrok-skip-browser-warning': 'true',
-    }));
+    _dio = Dio(BaseOptions(
+      baseUrl: baseUrl,
+      headers: {
+        // Bypass ngrok free plan browser warning for API calls
+        'ngrok-skip-browser-warning': 'true',
+      },
+      // Allow 4xx for manual handling (avoid noisy stack traces for validation errors)
+      validateStatus: (code) => code != null && code < 500,
+    ));
   }
 
   void setToken(String? token) {

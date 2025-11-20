@@ -11,8 +11,9 @@ class EventListItemCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    final time = '${DateFormat('HH:mm').format(event.startTime)} - ${DateFormat('HH:mm').format(event.endTime)}';
-    const location = '-';
+    final time = '${DateFormat('HH:mm').format(event.startTime.toLocal())} - ${DateFormat('HH:mm').format(event.endTime.toLocal())}';
+    // Chỉ hiển thị tên phòng (theo yêu cầu), bỏ thông tin tầng/location
+    final location = (event.roomName ?? '').isNotEmpty ? event.roomName! : '-';
     return InkWell(
       onTap: onTap,
       child: Card(
@@ -28,7 +29,7 @@ class EventListItemCard extends StatelessWidget {
                 const SizedBox(height: 4),
                 Text('Thời gian: $time', style: Theme.of(context).textTheme.bodySmall),
                 const SizedBox(height: 2),
-                Text('Địa điểm: $location', style: Theme.of(context).textTheme.bodySmall),
+                Text('Phòng: $location', style: Theme.of(context).textTheme.bodySmall),
               ]),
             ),
             if (trailing != null) ...[

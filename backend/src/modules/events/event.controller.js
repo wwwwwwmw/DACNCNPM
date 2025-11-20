@@ -134,11 +134,12 @@ async function createEvent(req, res) {
     }
     await notifyUsers(req.user.id, 'Tạo lịch thành công', `Đã tạo: ${title}`, { ref_type: 'event', ref_id: event.id });
 
-    // Notify department managers when pending for approval
+    // Notify department managers and all admins when pending for approval
     if (status === 'pending') {
       try {
         const mgrs = await User.findAll({ where: { role: 'manager', departmentId: event.departmentId }, attributes: ['id'] });
-        const ids = mgrs.map(m => m.id);
+        const admins = await User.findAll({ where: { role: 'admin' }, attributes: ['id'] });
+        const ids = mgrs.map(m => m.id).concat(admins.map(a => a.id));
         if (ids.length) {
           await notifyUsers(ids, 'Lịch chờ duyệt', `Có lịch mới chờ duyệt: ${event.title}`, { ref_type: 'event', ref_id: event.id });
         }
@@ -179,10 +180,28 @@ async function updateEvent(req, res) {
 
     // Notifications on status change
     if (typeof status !== 'undefined') {
-  const participants = await Participant.findAll({ where: { eventId: event.id } });
-  const ids = participants.map(p => p.userId).concat([event.createdById]);
-  const titleMsg = status === 'approved' ? 'Lịch được duyệt' : status === 'rejected' ? 'Lịch bị từ chối' : 'Cập nhật lịch';
-  await notifyUsers(ids, titleMsg, `${event.title} - Trạng thái: ${event.status}`, { ref_type: 'event', ref_id: event.id });
+      const participants = await Participant.findAll({ where: { eventId: event.id } });
+      let ids = participants.map(p => p.userId).concat([event.createdById]);
+      // Also notify department members for department-scoped events
+      try {
+        const extraDeptIds = [];
+        try {
+          const { EventDepartment } = require('../../models');
+          const rows = await EventDepartment.findAll({ where: { eventId: event.id }, attributes: ['departmentId'] });
+          extraDeptIds.push(...rows.map(r => r.departmentId));
+        } catch (_) {}
+        const depIds = [];
+        if (event.departmentId) depIds.push(event.departmentId);
+        depIds.push(...extraDeptIds);
+        if (depIds.length) {
+          const deptUsers = await User.findAll({ where: { departmentId: { [Op.in]: depIds } }, attributes: ['id'] });
+          ids = ids.concat(deptUsers.map(u => u.id));
+        }
+      } catch (_) {}
+      // Deduplicate
+      ids = Array.from(new Set(ids));
+      const titleMsg = status === 'approved' ? 'Lịch được duyệt' : status === 'rejected' ? 'Lịch bị từ chối' : 'Cập nhật lịch';
+      await notifyUsers(ids, titleMsg, `${event.title} - Trạng thái: ${event.status}`, { ref_type: 'event', ref_id: event.id });
     }
 
   const updated = await Event.findByPk(event.id, { include: [Room, { model: User, as: 'createdBy', attributes: ['id','name','email'] }, Participant] });

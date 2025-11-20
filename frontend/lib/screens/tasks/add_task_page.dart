@@ -23,18 +23,18 @@ class _AddTaskPageState extends State<AddTaskPage> {
   DateTime? _end;
   String _status = 'todo';
   String _priority = 'normal';
-  String _assignmentType = 'open';
+  String _assignmentType = 'direct';
   int _capacity = 1;
-  String? _departmentId; // admin can choose; manager defaults
+  String? _departmentId;
   List<DepartmentModel> _departments = const [];
   String? _projectId;
-  String? _assigneeId; // for direct assign at creation/update (manager/admin)
+  String? _assigneeId;
   List<Map<String,String>> _deptUsers = const [];
 
   @override
   void initState() {
     super.initState();
-  final t = widget.editing;
+    final t = widget.editing;
     if (t != null) {
       _titleCtrl.text = t.title;
       _descCtrl.text = t.description ?? '';
@@ -47,7 +47,6 @@ class _AddTaskPageState extends State<AddTaskPage> {
       _departmentId = t.departmentId;
       if (t.weight != null) _weightCtrl.text = t.weight.toString();
     }
-    // Preload departments for admin selection
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       final api = context.read<ApiService>();
       final me = api.currentUser;
@@ -61,11 +60,9 @@ class _AddTaskPageState extends State<AddTaskPage> {
       } else if (me != null && me.role == 'manager') {
         _departmentId = me.departmentId;
       }
-      // project prefill when editing
       if (widget.editing != null && widget.editing!.project != null) {
         _projectId = widget.editing!.project!.id;
       }
-      // preload dept users for direct assign
       if (me != null && (me.role == 'manager' || me.role == 'admin')) {
         final users = await api.listUsers(limit: 200, offset: 0);
         final filtered = (me.role == 'manager' && me.departmentId != null)
@@ -85,7 +82,7 @@ class _AddTaskPageState extends State<AddTaskPage> {
     final time = await showTimePicker(context: context, initialTime: TimeOfDay.now());
     if (time == null) return;
     final dt = DateTime(date.year, date.month, date.day, time.hour, time.minute);
-  setState(() { if (isStart) { _start = dt; } else { _end = dt; } });
+    setState(() { if (isStart) { _start = dt; } else { _end = dt; } });
   }
 
   Future<void> _save() async {
@@ -126,9 +123,7 @@ class _AddTaskPageState extends State<AddTaskPage> {
         await api.assignTask(widget.editing!.id, _assigneeId!);
       }
     }
-    if (mounted) {
-      Navigator.pop(context);
-    }
+    if (mounted) Navigator.pop(context);
   }
 
   int? _parseWeight() {
@@ -234,12 +229,6 @@ class _AddTaskPageState extends State<AddTaskPage> {
                     Expanded(child: OutlinedButton(onPressed: ()=>_pickDate(false), child: Text(_end==null? 'Thời gian kết thúc': _end.toString()))),
                   ]),
                   const SizedBox(height:12),
-                  DropdownButtonFormField(initialValue: _status, items: const [
-                    DropdownMenuItem(value: 'todo', child: Text('Cần làm')),
-                    DropdownMenuItem(value: 'in_progress', child: Text('Đang làm')),
-                    DropdownMenuItem(value: 'completed', child: Text('Hoàn thành')),
-                  ], onChanged: (v)=> setState(()=> _status = v as String), decoration: const InputDecoration(labelText: 'Trạng thái')),
-                  const SizedBox(height:12),
                   DropdownButtonFormField(initialValue: _priority, items: const [
                     DropdownMenuItem(value: 'low', child: Text('Thấp')),
                     DropdownMenuItem(value: 'normal', child: Text('Bình thường')),
@@ -247,14 +236,12 @@ class _AddTaskPageState extends State<AddTaskPage> {
                     DropdownMenuItem(value: 'urgent', child: Text('Khẩn cấp')),
                   ], onChanged: (v)=> setState(()=> _priority = v as String), decoration: const InputDecoration(labelText: 'Độ ưu tiên')),
                   const SizedBox(height:12),
-                  DropdownButtonFormField(
-                    initialValue: _assignmentType,
-                    items: const [
-                      DropdownMenuItem(value: 'open', child: Text('Mở (tự nhận)')),
-                      DropdownMenuItem(value: 'direct', child: Text('Trực tiếp (phân công)')),
-                    ],
-                    onChanged: (v) => setState(() => _assignmentType = v as String),
-                    decoration: const InputDecoration(labelText: 'Hình thức giao việc'),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: InputDecorator(
+                      decoration: const InputDecoration(labelText: 'Hình thức giao việc', border: InputBorder.none),
+                      child: const Text('Trực tiếp (phân công)'),
+                    ),
                   ),
                   const SizedBox(height:12),
                   DropdownButtonFormField<int>(
@@ -285,19 +272,17 @@ class _AddTaskPageState extends State<AddTaskPage> {
                       }
                     },
                   ),
-                  if (_assignmentType == 'direct') ...[
-                    const SizedBox(height: 12),
-                    Builder(builder: (ctx){
-                      final me = context.read<ApiService>().currentUser;
-                      if (me == null || (me.role != 'manager' && me.role != 'admin')) return const SizedBox.shrink();
-                      return DropdownButtonFormField<String>(
-                        initialValue: _assigneeId,
-                        items: _deptUsers.map((u) => DropdownMenuItem(value: u['id']!, child: Text(u['name']!))).toList(),
-                        onChanged: (v) => setState(()=> _assigneeId = v),
-                        decoration: const InputDecoration(labelText: 'Giao cho (phòng ban)'),
-                      );
-                    })
-                  ],
+                  const SizedBox(height: 12),
+                  Builder(builder: (ctx){
+                    final me = context.read<ApiService>().currentUser;
+                    if (me == null || (me.role != 'manager' && me.role != 'admin')) return const SizedBox.shrink();
+                    return DropdownButtonFormField<String>(
+                      initialValue: _assigneeId,
+                      items: _deptUsers.map((u) => DropdownMenuItem(value: u['id']!, child: Text(u['name']!))).toList(),
+                      onChanged: (v) => setState(()=> _assigneeId = v),
+                      decoration: const InputDecoration(labelText: 'Giao cho (phòng ban)'),
+                    );
+                  }),
                   const SizedBox(height:12),
                   Builder(builder: (ctx) {
                     final api = context.read<ApiService>();

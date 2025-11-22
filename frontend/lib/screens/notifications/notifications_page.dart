@@ -11,29 +11,32 @@ class NotificationsPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final api = context.watch<ApiService>();
-    final list = api.notifications;
-    return RefreshIndicator(
-      onRefresh: () async => api.fetchNotifications(),
-      child: ListView.builder(
-        padding: const EdgeInsets.symmetric(vertical: 8),
-        itemCount: list.length,
-        itemBuilder: (_, i) {
-          final n = list[i];
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              NotificationListItem(
-                n: n,
-                onTap: () async {
-                  await Navigator.of(context).push(MaterialPageRoute(builder: (_) => NotificationDetailPage(notification: n)));
-                  if (!context.mounted) return;
-                  await api.fetchNotifications();
-                },
-              ),
-              // Các nút thao tác đã được chuyển vào trang chi tiết thông báo
-            ],
-          );
-        },
+    final list = [...api.notifications];
+    // Sort newest first (assuming server order may vary)
+    list.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    return Scaffold(
+      appBar: AppBar(title: const Text('Notifications')),
+      body: RefreshIndicator(
+        onRefresh: () async => api.fetchNotifications(),
+        child: ListView.builder(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          itemCount: list.length,
+          itemBuilder: (_, i) {
+            final n = list[i];
+            return NotificationListItem(
+              n: n,
+              onTap: () async {
+                await Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => NotificationDetailPage(notification: n),
+                  ),
+                );
+                if (!context.mounted) return;
+                await api.fetchNotifications();
+              },
+            );
+          },
+        ),
       ),
     );
   }

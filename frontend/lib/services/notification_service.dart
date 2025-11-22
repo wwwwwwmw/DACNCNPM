@@ -10,7 +10,8 @@ class NotificationService {
   NotificationService._();
   static final NotificationService instance = NotificationService._();
 
-  final FlutterLocalNotificationsPlugin _plugin = FlutterLocalNotificationsPlugin();
+  final FlutterLocalNotificationsPlugin _plugin =
+      FlutterLocalNotificationsPlugin();
   bool _initialized = false;
 
   Future<void> init() async {
@@ -25,19 +26,36 @@ class NotificationService {
     await _plugin.initialize(settings);
 
     // Request runtime permissions where needed (Android 13+, iOS)
-    await _plugin.resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()?.requestNotificationsPermission();
-    await _plugin.resolvePlatformSpecificImplementation<IOSFlutterLocalNotificationsPlugin>()?.requestPermissions(alert: true, badge: true, sound: true);
+    await _plugin
+        .resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin
+        >()
+        ?.requestNotificationsPermission();
+    await _plugin
+        .resolvePlatformSpecificImplementation<
+          IOSFlutterLocalNotificationsPlugin
+        >()
+        ?.requestPermissions(alert: true, badge: true, sound: true);
     _initialized = true;
   }
 
-  Future<void> showNow({required String title, required String body, String? payload}) async {
+  Future<void> showNow({
+    required String title,
+    required String body,
+    String? payload,
+  }) async {
     const androidDetails = AndroidNotificationDetails(
-      'general_channel', 'General',
-      importance: Importance.high, priority: Priority.high,
+      'general_channel',
+      'General',
+      importance: Importance.high,
+      priority: Priority.high,
       icon: '@mipmap/ic_launcher',
     );
     const iosDetails = DarwinNotificationDetails();
-    const details = NotificationDetails(android: androidDetails, iOS: iosDetails);
+    const details = NotificationDetails(
+      android: androidDetails,
+      iOS: iosDetails,
+    );
     await _plugin.show(_randomId(), title, body, details, payload: payload);
   }
 
@@ -51,12 +69,17 @@ class NotificationService {
     final tzTime = tz.TZDateTime.from(whenLocal, tz.local);
     if (whenLocal.isBefore(DateTime.now())) return; // don't schedule past
     const androidDetails = AndroidNotificationDetails(
-      'schedule_channel', 'Schedules',
-      importance: Importance.high, priority: Priority.high,
+      'schedule_channel',
+      'Schedules',
+      importance: Importance.high,
+      priority: Priority.high,
       icon: '@mipmap/ic_launcher',
     );
     const iosDetails = DarwinNotificationDetails();
-    const details = NotificationDetails(android: androidDetails, iOS: iosDetails);
+    const details = NotificationDetails(
+      android: androidDetails,
+      iOS: iosDetails,
+    );
     await _plugin.zonedSchedule(
       id,
       title,
@@ -64,7 +87,8 @@ class NotificationService {
       tzTime,
       details,
       androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-      uiLocalNotificationDateInterpretation: UILocalNotificationDateInterpretation.absoluteTime,
+      uiLocalNotificationDateInterpretation:
+          UILocalNotificationDateInterpretation.absoluteTime,
       matchDateTimeComponents: DateTimeComponents.dateAndTime,
     );
   }
@@ -80,11 +104,16 @@ class NotificationService {
     await _plugin.cancel(_taskEndId(taskId));
   }
 
-  Future<void> scheduleTaskReminders(Iterable<TaskModel> tasks, {required String? currentUserId}) async {
+  Future<void> scheduleTaskReminders(
+    Iterable<TaskModel> tasks, {
+    required String? currentUserId,
+  }) async {
     if (currentUserId == null) return;
     for (final t in tasks) {
       // only tasks assigned to current user
-      final assigned = t.assignments.any((a) => a.userId == currentUserId && a.status != 'rejected');
+      final assigned = t.assignments.any(
+        (a) => a.userId == currentUserId && a.status != 'rejected',
+      );
       if (!assigned) continue;
       // cancel previous scheduling to avoid duplicates
       await cancelTaskReminders(t.id);
@@ -111,7 +140,9 @@ class NotificationService {
   }
 
   // Store and emit new server-side notifications (avoid duplicates across restarts)
-  Future<void> showNewServerNotifications(Iterable<model.NotificationModel> items) async {
+  Future<void> showNewServerNotifications(
+    Iterable<model.NotificationModel> items,
+  ) async {
     final prefs = await SharedPreferences.getInstance();
     final key = 'notified_server_ids';
     final saved = prefs.getStringList(key) ?? <String>[];

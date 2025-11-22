@@ -1,4 +1,5 @@
-import 'package:flutter/foundation.dart' show kIsWeb, defaultTargetPlatform, TargetPlatform;
+import 'package:flutter/foundation.dart'
+    show kIsWeb, defaultTargetPlatform, TargetPlatform;
 
 class Constants {
   // Sử dụng --dart-define=API_BASE_URL=https://<your-ngrok>.ngrok-free.dev khi dùng ngrok
